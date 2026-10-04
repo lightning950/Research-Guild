@@ -1,42 +1,18 @@
-/* =========================================================================
-   sound.js -- chiptune sound effects, synthesised live with the Web Audio API.
-
-   WHY SYNTHESISE INSTEAD OF PLAYING AUDIO FILES?
-   A Game Boy never played recordings either: its sound chip generated square
-   and triangle waves on the fly. Doing the same thing here means zero audio
-   assets to download or license, a few KB of code, and a sound that is
-   period-correct by construction rather than by picking the right MP3.
-
-   THREE RULES THIS FILE FOLLOWS, BECAUSE A RESEARCH RUN IS 60-90 SECONDS OF
-   CONSTANT EVENTS AND BAD GAME AUDIO BECOMES UNBEARABLE FAST:
-
-   1. Only milestones make sound. "Scout 2 is reading wikipedia" happens
-      twenty times a run and is silent; an agent finishing, failing, or the
-      quest completing is not.
-   2. Everything is throttled per sound. Four scouts finishing in the same
-      100ms play one chime, not a four-way pile-up.
-   3. Muting is one click and it is remembered.
-
-   Browsers block audio until the user interacts with the page, so nothing
-   plays until unlock() is called from a click or key press. That is why the
-   first sound you hear is the START button, never a surprise on page load.
-   ========================================================================= */
-
 const Sound = (function () {
   "use strict";
 
   const STORAGE_KEY = "research-guild.sound";
-  const MASTER_VOLUME = 0.13;   // deliberately quiet: this sits under your work
+  const MASTER_VOLUME = 0.13;
 
   let ctx = null;
   let master = null;
   let enabled = readPreference();
-  const lastPlayed = {};         // sound name -> timestamp, for throttling
+  const lastPlayed = {};
 
-  /* ---------------------------------------------------------- preference */
+
 
   // localStorage can throw (private windows, blocked site data), so every
-  // access is guarded and the default simply wins if storage is unavailable.
+
   function readPreference() {
     try {
       return localStorage.getItem(STORAGE_KEY) !== "off";
@@ -48,10 +24,10 @@ const Sound = (function () {
   function writePreference() {
     try {
       localStorage.setItem(STORAGE_KEY, enabled ? "on" : "off");
-    } catch (e) { /* not persisted; still works for this visit */ }
+    } catch (e) {  }
   }
 
-  /* --------------------------------------------------------------- setup */
+
 
   /**
    * Create the audio graph on first user gesture. Safe to call repeatedly.
@@ -85,7 +61,7 @@ const Sound = (function () {
     osc.type = o.wave || "square";
     osc.frequency.setValueAtTime(freq, t0);
     if (o.slideTo) {
-      // Pitch slides are what make a "bloop" or a "zap" rather than a beep.
+
       osc.frequency.exponentialRampToValueAtTime(o.slideTo, t0 + dur);
     }
 
@@ -101,38 +77,37 @@ const Sound = (function () {
     osc.stop(t0 + dur + 0.02);
   }
 
-  /* Note frequencies used below, in Hz. Named so the melodies read as music
-     instead of as a column of magic numbers. */
+
   const N = {
     C4: 261.6, E4: 329.6, G4: 392.0, A4: 440.0,
     C5: 523.3, D5: 587.3, E5: 659.3, G5: 784.0, A5: 880.0,
     C6: 1046.5, E6: 1318.5
   };
 
-  /* ------------------------------------------------------------- effects */
+
 
   const EFFECTS = {
-    // Dialogue text tick. Very short and very quiet -- it fires per couple
-    // of characters, so anything louder turns into a buzz.
+
+
     blip:    { gap: 45,  play: function () { note(1400, 0, 0.022, { volume: 0.18 }); } },
 
-    // Menu cursor moving.
+
     select:  { gap: 60,  play: function () { note(N.A5, 0, 0.04, { volume: 0.35 }); } },
 
-    // START / confirming a menu choice: a quick upward two-step.
+
     confirm: { gap: 150, play: function () {
       note(N.E5, 0, 0.06, { volume: 0.45 });
       note(N.A5, 0.06, 0.09, { volume: 0.45 });
     } },
 
-    // The planner reported back and the scouts are summoned: rising arpeggio.
+
     summon:  { gap: 400, play: function () {
       [N.C5, N.E5, N.G5, N.C6].forEach(function (f, i) {
         note(f, i * 0.055, 0.08, { volume: 0.4 });
       });
     } },
 
-    // An agent finished its part. Two bright notes -- the classic "item get".
+
     done:    { gap: 140, play: function () {
       note(N.E6, 0, 0.05, { volume: 0.32 });
       note(N.C6 * 1.5, 0.05, 0.1, { volume: 0.32 });
@@ -143,21 +118,21 @@ const Sound = (function () {
       note(N.A4, 0, 0.14, { wave: "triangle", volume: 0.5, slideTo: N.E4 });
     } },
 
-    // Something failed: a descending buzz.
+
     fail:    { gap: 400, play: function () {
       note(N.G4, 0, 0.12, { volume: 0.4, slideTo: N.C4 });
       note(N.E4 * 0.75, 0.12, 0.22, { volume: 0.4, slideTo: 110 });
     } },
 
-    // Quest complete. Short on purpose (under a second): a fanfare that
-    // outstays its welcome is the fastest way to get the sound muted forever.
+
+
     fanfare: { gap: 2000, play: function () {
       const seq = [
         [N.C5, 0.00, 0.09], [N.E5, 0.09, 0.09], [N.G5, 0.18, 0.09],
         [N.C6, 0.27, 0.16], [N.G5, 0.45, 0.09], [N.C6, 0.54, 0.34]
       ];
       seq.forEach(function (s) { note(s[0], s[1], s[2], { volume: 0.42 }); });
-      // A triangle-wave bass under the last two notes gives it weight.
+
       note(N.C4, 0.45, 0.45, { wave: "triangle", volume: 0.55 });
     } }
   };

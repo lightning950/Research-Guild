@@ -1,73 +1,43 @@
-/* =========================================================================
-   pixel-art.js -- generates every texture the game uses, in code.
-
-   WHY GENERATE ART INSTEAD OF LOADING THE ITCH.IO PACKS?
-
-   The two packs you named (Modern Interiors, Tiny RPG Characters) are great,
-   but both need a manual click-through download and then a per-tile atlas
-   mapping before a single pixel appears on screen. That would leave Phase B
-   blocked on a download.
-
-   So this file paints the tileset and the characters with plain canvas rects
-   on a strict 16x16 grid and a fixed 24-colour palette -- which is literally
-   how the original 16-bit artists worked, just with code instead of a mouse.
-   Nothing here is smoothed, anti-aliased or fractional.
-
-   HOW TO SWAP IN THE REAL PACKS LATER (the seam):
-   Every texture is registered by a string key in register() below. Phaser
-   never cares where a texture came from. So to use LimeZu tiles instead,
-   preload the real spritesheets under the SAME keys in game.js's preload()
-   and delete the matching builder call here. game.js needs no changes at all.
-   Keys are listed in TEXTURE_KEYS at the bottom for exactly this reason.
-   ========================================================================= */
-
 const PixelArt = (function () {
   "use strict";
 
-  /* ----------------------------------------------------------------
-     PALETTE
 
-     24 colours, hand-picked as 8 ramps of 3. A tight palette is the
-     single biggest reason real pixel art looks cohesive and why
-     "pick any hex code" art does not: every surface in the room
-     shares the same limited set, so it reads as one place.
-     ---------------------------------------------------------------- */
   const P = {
-    // outline / darkest -- used for every silhouette edge
+
     ink:      "#1b1526",
     ink2:     "#302640",
 
-    // wood: floor, desks, shelves
+
     woodD:    "#5a3620",
     wood:     "#8a5a33",
     woodL:    "#b5824d",
 
-    // floorboards (lighter than furniture so furniture reads on top)
+
     floorD:   "#9c6f43",
     floor:    "#bd8d57",
     floorL:   "#d2a874",
 
-    // plaster wall
+
     wallD:    "#2f3c5c",
     wall:     "#455878",
     wallL:    "#5d7396",
 
-    // parchment: paper, books, lamplight
+
     parchD:   "#bca87e",
     parch:    "#e4d4ab",
     parchL:   "#f6ecd0",
 
-    // brass / gold accents
+
     brassD:   "#8a6222",
     brass:    "#c9963f",
     brassL:   "#efcf83",
 
-    // skin
+
     skinD:    "#c1804f",
     skin:     "#e8b083",
     skinL:    "#f6d3ad",
 
-    // signal colours (emotes, book spines, screens)
+
     red:      "#a8394f",
     green:    "#4d8f52",
     blue:     "#3f7fb5",
@@ -76,13 +46,12 @@ const PixelArt = (function () {
     white:    "#f4f1e6"
   };
 
-  /* Per-agent colour identity. One robe colour each so you can tell who is
-     who at 16 pixels tall -- silhouette alone is not enough at this size. */
+
   const ROLE_COLORS = {
     planner:       { robe: "#7a5aa8", robeD: "#4e3873", trim: P.brass,  hair: "#2b2135" },
     synthesizer:   { robe: "#d9cdae", robeD: "#a2977c", trim: P.brassD, hair: "#5a4a3a" },
     verifier:      { robe: "#a8394f", robeD: "#6e2232", trim: P.brassL, hair: "#241a24" },
-    // Researchers cycle through these in order.
+
     researchers: [
       { robe: "#3f7fb5", robeD: "#27527a", trim: P.parchL, hair: "#2a2030" },
       { robe: "#4d8f52", robeD: "#2f5c36", trim: P.parchL, hair: "#3d2a1e" },
@@ -92,13 +61,7 @@ const PixelArt = (function () {
     ]
   };
 
-  /* ----------------------------------------------------------------
-     Tiny drawing helpers.
 
-     Everything is integer rects. There is no arc, no gradient and no
-     line width anywhere in this file -- those are what make "pixel
-     art" look like vector art pretending.
-     ---------------------------------------------------------------- */
 
   function surface(w, h) {
     const cv = document.createElement("canvas");
@@ -128,9 +91,7 @@ const PixelArt = (function () {
     return n - Math.floor(n);
   }
 
-  /* ================================================================
-     ROOM TILES
-     ================================================================ */
+
 
   /**
    * 16x16 wooden floorboard, two variants.
@@ -149,21 +110,21 @@ const PixelArt = (function () {
     const c = s.ctx;
     r(c, 0, 0, 16, 16, P.floor);
 
-    // Continuous seams between boards. These line up tile-to-tile, which is
-    // exactly what we want: it makes the boards look long.
+
+
     r(c, 0, 7, 16, 1, P.floorD);
     r(c, 0, 15, 16, 1, P.floorD);
-    // A 1px highlight just under each seam: the lit edge of the next board.
+
     r(c, 0, 8, 16, 1, P.floorL);
     r(c, 0, 0, 16, 1, P.floorL);
 
-    // One short butt-joint per tile, confined to a single board and placed
-    // differently per variant so the joints scatter instead of forming a
-    // column. This is the only vertical mark on the floor.
+
+
+
     if (variant) r(c, 4, 1, 1, 6, P.floorD);
     else r(c, 11, 9, 1, 6, P.floorD);
 
-    // Grain: short HORIZONTAL dashes, low contrast, kept off the seams.
+
     for (let i = 0; i < 4; i++) {
       const gy = hash(i, variant) > 0.5 ? 3 + (i % 3) : 11 + (i % 3);
       const gx = Math.floor(hash(variant, i) * 11);
@@ -177,7 +138,7 @@ const PixelArt = (function () {
     const s = surface(16, 16);
     const c = s.ctx;
     r(c, 0, 0, 16, 16, P.wall);
-    // top highlight where the wall meets the ceiling light
+
     r(c, 0, 0, 16, 2, P.wallL);
     for (let i = 0; i < 8; i++) {
       px(c, Math.floor(hash(i, 3) * 16), Math.floor(hash(3, i) * 16), P.wallD);
@@ -191,9 +152,9 @@ const PixelArt = (function () {
     const s = surface(16, 16);
     const c = s.ctx;
     r(c, 0, 0, 16, 16, P.wood);
-    r(c, 0, 0, 16, 2, P.woodL);       // top rail highlight
-    r(c, 0, 13, 16, 3, P.woodD);      // skirting board
-    r(c, 2, 4, 12, 8, P.woodD);       // recessed panel
+    r(c, 0, 0, 16, 2, P.woodL);
+    r(c, 0, 13, 16, 3, P.woodD);
+    r(c, 2, 4, 12, 8, P.woodD);
     r(c, 3, 5, 10, 6, P.wood);
     return s.cv;
   }
@@ -203,25 +164,25 @@ const PixelArt = (function () {
   function bookshelf(seed) {
     const s = surface(32, 34);
     const c = s.ctx;
-    r(c, 0, 0, 32, 34, P.woodD);            // carcass
-    r(c, 1, 1, 30, 32, P.wood);             // inner face
-    r(c, 0, 32, 32, 2, P.ink);              // shadow at the base
+    r(c, 0, 0, 32, 34, P.woodD);
+    r(c, 1, 1, 30, 32, P.wood);
+    r(c, 0, 32, 32, 2, P.ink);
 
     const spineColors = [P.red, P.green, P.blue, P.violet, P.brass, P.cyan, P.parchD];
 
-    // three shelves
+
     for (let shelf = 0; shelf < 3; shelf++) {
       const top = 3 + shelf * 10;
-      r(c, 2, top + 8, 28, 2, P.woodD);     // the shelf board itself
+      r(c, 2, top + 8, 28, 2, P.woodD);
 
-      // books standing on it
+
       let x = 3;
       while (x < 28) {
-        const w = 2 + Math.floor(hash(seed + shelf, x) * 2);   // 2-3px wide
-        const h = 5 + Math.floor(hash(x, seed + shelf) * 3);   // 5-7px tall
+        const w = 2 + Math.floor(hash(seed + shelf, x) * 2);
+        const h = 5 + Math.floor(hash(x, seed + shelf) * 3);
         const col = spineColors[Math.floor(hash(x * 3, shelf + seed) * spineColors.length)];
         r(c, x, top + 8 - h, w, h, col);
-        px(c, x, top + 8 - h, P.ink);                          // spine top nick
+        px(c, x, top + 8 - h, P.ink);
         x += w + 1;
       }
     }
@@ -233,19 +194,19 @@ const PixelArt = (function () {
   function desk(withScreen) {
     const s = surface(34, 18);
     const c = s.ctx;
-    r(c, 0, 2, 34, 5, P.woodL);     // top surface (catches the light)
-    r(c, 0, 7, 34, 3, P.wood);      // front edge
+    r(c, 0, 2, 34, 5, P.woodL);
+    r(c, 0, 7, 34, 3, P.wood);
     r(c, 0, 10, 34, 1, P.woodD);
-    r(c, 2, 11, 4, 6, P.woodD);     // left leg
-    r(c, 28, 11, 4, 6, P.woodD);    // right leg
-    r(c, 0, 17, 34, 1, P.ink);      // contact shadow
+    r(c, 2, 11, 4, 6, P.woodD);
+    r(c, 28, 11, 4, 6, P.woodD);
+    r(c, 0, 17, 34, 1, P.ink);
 
     if (withScreen) {
-      // A little CRT, back turned to us: dark bezel with a glow spill.
+
       r(c, 11, 0, 12, 4, P.ink2);
       r(c, 12, 1, 10, 2, P.cyan);
     } else {
-      // A few sheets of paper instead.
+
       r(c, 6, 1, 7, 2, P.parchL);
       r(c, 20, 1, 6, 2, P.parch);
     }
@@ -256,15 +217,15 @@ const PixelArt = (function () {
   function windowPane() {
     const s = surface(26, 20);
     const c = s.ctx;
-    r(c, 0, 0, 26, 20, P.woodD);        // frame
-    r(c, 2, 2, 22, 16, "#1d2740");      // night sky
-    // stars, fixed positions
+    r(c, 0, 0, 26, 20, P.woodD);
+    r(c, 2, 2, 22, 16, "#1d2740");
+
     [[5, 5], [11, 3], [18, 7], [8, 12], [20, 13]].forEach(function (p) {
       px(c, p[0], p[1], P.parchL);
     });
-    r(c, 12, 2, 2, 16, P.woodD);        // mullion
-    r(c, 2, 9, 22, 2, P.woodD);         // transom
-    r(c, 0, 18, 26, 2, P.wood);         // sill
+    r(c, 12, 2, 2, 16, P.woodD);
+    r(c, 2, 9, 22, 2, P.woodD);
+    r(c, 0, 18, 26, 2, P.wood);
     return s.cv;
   }
 
@@ -273,12 +234,12 @@ const PixelArt = (function () {
   function chair() {
     const s = surface(12, 22);
     const c = s.ctx;
-    r(c, 1, 2, 3, 18, P.woodD);        // back post
+    r(c, 1, 2, 3, 18, P.woodD);
     r(c, 2, 3, 1, 15, P.wood);
-    r(c, 1, 2, 9, 2, P.wood);          // top rail
-    r(c, 1, 11, 10, 3, P.woodL);       // seat
+    r(c, 1, 2, 9, 2, P.wood);
+    r(c, 1, 11, 10, 3, P.woodL);
     r(c, 1, 14, 10, 1, P.woodD);
-    r(c, 2, 15, 2, 6, P.woodD);        // legs
+    r(c, 2, 15, 2, 6, P.woodD);
     r(c, 8, 15, 2, 6, P.woodD);
     r(c, 0, 20, 12, 1, "rgba(27,21,38,0.3)");
     return s.cv;
@@ -288,10 +249,10 @@ const PixelArt = (function () {
   function breakTable() {
     const s = surface(38, 37);
     const c = s.ctx;
-    r(c, 1, 2, 36, 26, P.woodD);       // top, outlined
+    r(c, 1, 2, 36, 26, P.woodD);
     r(c, 2, 3, 34, 24, P.woodL);
-    r(c, 4, 5, 30, 20, P.wood);        // inner panel, so it is not a flat slab
-    r(c, 3, 28, 4, 8, P.woodD);        // legs
+    r(c, 4, 5, 30, 20, P.wood);
+    r(c, 3, 28, 4, 8, P.woodD);
     r(c, 31, 28, 4, 8, P.woodD);
     r(c, 1, 35, 36, 2, "rgba(27,21,38,0.25)");
     return s.cv;
@@ -301,36 +262,22 @@ const PixelArt = (function () {
   function coffeeMaker() {
     const s = surface(16, 22);
     const c = s.ctx;
-    r(c, 2, 1, 12, 20, P.ink);         // body
+    r(c, 2, 1, 12, 20, P.ink);
     r(c, 3, 2, 10, 18, P.ink2);
-    r(c, 4, 3, 8, 5, P.wallD);         // water tank
+    r(c, 4, 3, 8, 5, P.wallD);
     r(c, 5, 4, 6, 3, P.cyan);
-    r(c, 4, 10, 8, 6, P.ink);          // carafe recess
-    r(c, 5, 11, 6, 4, P.woodD);        // the coffee itself
+    r(c, 4, 10, 8, 6, P.ink);
+    r(c, 5, 11, 6, 4, P.woodD);
     r(c, 5, 11, 6, 1, P.wood);
-    r(c, 4, 17, 8, 2, P.brass);        // hot plate, glowing
-    px(c, 12, 4, P.red);               // power light
+    r(c, 4, 17, 8, 2, P.brass);
+    px(c, 12, 4, P.red);
     return s.cv;
   }
 
-  /* ================================================================
-     THE ARCHIVE BOOKCASE
-
-     Drawn here rather than cropped from the pack, because it is the one
-     object in the room whose ART IS DATA: every report the guild has ever
-     saved is a spine on these shelves, so the case has to be redrawn each
-     time one is filed. A fixed sprite could not do that.
-
-     Both themes use this same drawing. The Modern Interiors theme crops
-     everything else from LimeZu's sheet, but there is no sheet anywhere
-     with "a bookcase holding exactly nineteen books", and the case is the
-     thing the player is meant to walk up to and click.
-     ================================================================ */
-
   const CASE_W = 50;
   const CASE_H = 46;
-  const SHELF_ROWS = [7, 20, 33];      // y of each shelf board
-  const SLOTS = 11;                    // spines that fit on one shelf
+  const SHELF_ROWS = [7, 20, 33];
+  const SLOTS = 11;
 
   /** Book colours, deliberately muted so thirty spines do not read as a
       bag of sweets. Index by slot, so a given report keeps its colour. */
@@ -346,34 +293,34 @@ const PixelArt = (function () {
     const c = s.ctx;
     const n = Math.max(0, filled | 0);
 
-    // carcass
+
     r(c, 0, 0, CASE_W, CASE_H, P.ink);
     r(c, 1, 1, CASE_W - 2, CASE_H - 2, P.woodD);
     r(c, 2, 2, CASE_W - 4, CASE_H - 5, P.wood);
-    r(c, 3, 4, CASE_W - 6, CASE_H - 9, P.ink2);        // the dark interior
+    r(c, 3, 4, CASE_W - 6, CASE_H - 9, P.ink2);
 
-    // cornice, with a brass band so it reads as the room's one grand object
+
     r(c, 0, 0, CASE_W, 3, P.woodD);
     r(c, 1, 1, CASE_W - 2, 1, P.woodL);
     r(c, 2, 3, CASE_W - 4, 1, P.brass);
 
     let left = n;
     SHELF_ROWS.forEach(function (y, row) {
-      // the board itself
+
       r(c, 3, y + 10, CASE_W - 6, 2, P.woodL);
       r(c, 3, y + 12, CASE_W - 6, 1, P.woodD);
 
       for (let i = 0; i < SLOTS && left > 0; i++, left--) {
         const x = 4 + i * 4;
-        const h = 8 + ((row + i) % 3);                 // uneven heights
+        const h = 8 + ((row + i) % 3);
         const col = SPINES[(row * SLOTS + i) % SPINES.length];
         r(c, x, y + 10 - h, 3, h, col);
-        r(c, x, y + 10 - h, 1, h, P.ink2);             // shadowed edge
-        r(c, x + 1, y + 9 - h, 1, 1, P.brassL);        // gilt top
+        r(c, x, y + 10 - h, 1, h, P.ink2);
+        r(c, x + 1, y + 9 - h, 1, 1, P.brassL);
       }
     });
 
-    // a small footing, so it stands rather than floats
+
     r(c, 1, CASE_H - 3, CASE_W - 2, 2, P.woodD);
     r(c, 0, CASE_H - 1, CASE_W, 1, "rgba(27,21,38,0.35)");
     return s.cv;
@@ -388,14 +335,14 @@ const PixelArt = (function () {
   function monitor() {
     const s = surface(11, 13);
     const c = s.ctx;
-    r(c, 0, 0, 11, 9, P.ink);          // bezel
+    r(c, 0, 0, 11, 9, P.ink);
     r(c, 1, 1, 9, 7, P.ink2);
-    r(c, 1, 1, 9, 6, P.wallD);         // the screen itself
-    r(c, 2, 2, 7, 4, P.cyan);          // lit, because somebody is working
-    r(c, 2, 2, 7, 1, P.white);         // glare along the top
-    r(c, 3, 4, 3, 1, P.wallD);         // a line of text on it
-    r(c, 4, 9, 3, 2, P.ink);           // neck
-    r(c, 2, 11, 7, 2, P.ink2);         // foot
+    r(c, 1, 1, 9, 6, P.wallD);
+    r(c, 2, 2, 7, 4, P.cyan);
+    r(c, 2, 2, 7, 1, P.white);
+    r(c, 3, 4, 3, 1, P.wallD);
+    r(c, 4, 9, 3, 2, P.ink);
+    r(c, 2, 11, 7, 2, P.ink2);
     r(c, 2, 11, 7, 1, P.wallL);
     return s.cv;
   }
@@ -411,21 +358,21 @@ const PixelArt = (function () {
     r(c, 1, 1, 7, 9, P.ink);
     r(c, 2, 2, 5, 7, P.parch);
     r(c, 2, 2, 5, 1, P.parchL);
-    r(c, 3, 4, 3, 1, P.ink2);          // a line of writing
+    r(c, 3, 4, 3, 1, P.ink2);
     r(c, 3, 6, 3, 1, P.ink2);
-    r(c, 1, 0, 7, 2, P.brass);         // rolled top
-    r(c, 1, 9, 7, 2, P.brass);         // rolled bottom
+    r(c, 1, 0, 7, 2, P.brass);
+    r(c, 1, 9, 7, 2, P.brass);
     return s.cv;
   }
 
   function lamp() {
     const s = surface(14, 20);
     const c = s.ctx;
-    r(c, 6, 0, 2, 6, P.ink2);           // cord
-    r(c, 2, 6, 10, 2, P.brassD);        // shade rim
-    r(c, 1, 8, 12, 4, P.brass);         // shade
-    r(c, 3, 12, 8, 2, P.brassL);        // bulb glow
-    r(c, 5, 14, 4, 2, P.parchL);        // hotspot
+    r(c, 6, 0, 2, 6, P.ink2);
+    r(c, 2, 6, 10, 2, P.brassD);
+    r(c, 1, 8, 12, 4, P.brass);
+    r(c, 3, 12, 8, 2, P.brassL);
+    r(c, 5, 14, 4, 2, P.parchL);
     return s.cv;
   }
 
@@ -433,14 +380,14 @@ const PixelArt = (function () {
   function plant() {
     const s = surface(14, 24);
     const c = s.ctx;
-    r(c, 3, 17, 8, 6, P.woodD);         // pot
-    r(c, 4, 17, 6, 1, P.wood);          // pot rim highlight
-    r(c, 6, 10, 2, 8, "#3f6b39");       // stem
-    // fronds
+    r(c, 3, 17, 8, 6, P.woodD);
+    r(c, 4, 17, 6, 1, P.wood);
+    r(c, 6, 10, 2, 8, "#3f6b39");
+
     [[1, 8], [10, 8], [2, 12], [9, 12], [5, 5], [4, 2]].forEach(function (p, i) {
       r(c, p[0], p[1], 4, 3, i % 2 ? "#4d8f52" : "#3f6b39");
     });
-    r(c, 2, 23, 10, 1, P.ink);          // shadow
+    r(c, 2, 23, 10, 1, P.ink);
     return s.cv;
   }
 
@@ -449,14 +396,14 @@ const PixelArt = (function () {
   function banner() {
     const s = surface(18, 26);
     const c = s.ctx;
-    r(c, 0, 0, 18, 2, P.woodD);         // rod
-    r(c, 2, 2, 14, 20, P.red);          // cloth
+    r(c, 0, 0, 18, 2, P.woodD);
+    r(c, 2, 2, 14, 20, P.red);
     r(c, 2, 2, 14, 1, P.brassL);
-    r(c, 3, 3, 12, 18, "#8a2c3f");      // inner field
-    // a book glyph
+    r(c, 3, 3, 12, 18, "#8a2c3f");
+
     r(c, 6, 8, 6, 5, P.parchL);
     r(c, 8, 8, 1, 5, P.brassD);
-    // pennant tail
+
     r(c, 2, 22, 5, 3, P.red);
     r(c, 11, 22, 5, 3, P.red);
     return s.cv;
@@ -475,7 +422,7 @@ const PixelArt = (function () {
     const c = s.ctx;
     const cols = [P.red, P.blue, P.green, P.violet, P.brass];
     let y = 14;
-    // Stack 3-4 books, each offset slightly so the pile looks unstable.
+
     const n = 3 + Math.floor(hash(seed, 9) * 2);
     for (let i = 0; i < n; i++) {
       const h = 2 + Math.floor(hash(i, seed) * 2);
@@ -484,30 +431,13 @@ const PixelArt = (function () {
       y -= h;
       r(c, x, y, w, h, cols[Math.floor(hash(seed + i, i) * cols.length)]);
       r(c, x, y, w, 1, P.parchL);      // page block catching the light
-      r(c, x, y + h - 1, w, 1, P.ink); // shadow under each book
+      r(c, x, y + h - 1, w, 1, P.ink);
     }
-    r(c, 1, 15, 12, 1, "rgba(27,21,38,0.35)");   // contact shadow
+    r(c, 1, 15, 12, 1, "rgba(27,21,38,0.35)");
     return s.cv;
   }
 
-  /* ================================================================
-     CHARACTERS
 
-     Each character is a 16-frame sheet of 16x24 cells:
-
-       0 idle0   1 idle1    2 read0   3 read1
-       4 type0   5 type1    6 cheer   7 sad
-       8..15     walk<Down|Up|Left|Right><0|1>
-
-     The eight walk frames were added in Phase 2, when agents started
-     moving between zones. Two frames a direction is the minimum that
-     reads as walking: legs together, legs apart. Frame 0 of each pair
-     doubles as that direction's standing pose.
-
-     16x24 is the Tiny-RPG-ish proportion: a 6px head on a 9px body,
-     which is the smallest size that still reads as a person with a
-     recognisable pose.
-     ================================================================ */
 
   const FRAME_W = 16;
   const FRAME_H = 24;
@@ -524,50 +454,50 @@ const PixelArt = (function () {
    * `col` is a ROLE_COLORS entry; `pose` is one of POSES.
    */
   function charFrame(ctx, ox, oy, pose, col) {
-    // `bob` is the entire trick behind idle animation: shifting the whole
-    // figure down one pixel every other frame reads as breathing.
+
+
     const bob = (pose === "idle1" || pose === "type1") ? 1 : 0;
     const y = oy + bob;
 
-    // Ground shadow stays put while the body bobs -- if the shadow moves
-    // too, the character looks like it is floating rather than breathing.
+
+
     r(ctx, ox + 4, oy + 22, 8, 2, "rgba(27,21,38,0.35)");
 
-    /* ---- legs & feet ---- */
+
     r(ctx, ox + 5, y + 18, 2, 4, P.ink2);
     r(ctx, ox + 9, y + 18, 2, 4, P.ink2);
     r(ctx, ox + 4, y + 21, 3, 2, P.ink);
     r(ctx, ox + 9, y + 21, 3, 2, P.ink);
 
-    /* ---- robe / torso ---- */
+
     r(ctx, ox + 4, y + 10, 8, 9, col.robe);
-    r(ctx, ox + 3, y + 11, 1, 7, col.robeD);   // left shading edge
-    r(ctx, ox + 12, y + 11, 1, 7, col.robeD);  // right shading edge
-    r(ctx, ox + 4, y + 17, 8, 2, col.robeD);   // hem in shadow
-    r(ctx, ox + 7, y + 10, 2, 7, col.trim);    // centre trim stripe
+    r(ctx, ox + 3, y + 11, 1, 7, col.robeD);
+    r(ctx, ox + 12, y + 11, 1, 7, col.robeD);
+    r(ctx, ox + 4, y + 17, 8, 2, col.robeD);
+    r(ctx, ox + 7, y + 10, 2, 7, col.trim);
 
-    /* ---- head ---- */
+
     r(ctx, ox + 5, y + 4, 6, 6, P.skin);
-    r(ctx, ox + 5, y + 4, 6, 1, P.skinL);      // forehead highlight
-    r(ctx, ox + 10, y + 5, 1, 5, P.skinD);     // cheek shadow
-    r(ctx, ox + 6, y + 10, 4, 1, P.skinD);     // neck
+    r(ctx, ox + 5, y + 4, 6, 1, P.skinL);
+    r(ctx, ox + 10, y + 5, 1, 5, P.skinD);
+    r(ctx, ox + 6, y + 10, 4, 1, P.skinD);
 
-    /* ---- hair ---- */
+
     r(ctx, ox + 4, y + 2, 8, 3, col.hair);
-    r(ctx, ox + 4, y + 5, 1, 2, col.hair);     // sideburns
+    r(ctx, ox + 4, y + 5, 1, 2, col.hair);
     r(ctx, ox + 11, y + 5, 1, 2, col.hair);
 
-    /* ---- face: the pose-specific part ---- */
+
     if (pose === "sad") {
-      // Downcast: eyes as short dashes, mouth flat.
+
       r(ctx, ox + 6, y + 8, 2, 1, P.ink);
       r(ctx, ox + 9, y + 8, 2, 1, P.ink);
     } else if (pose === "cheer") {
       px(ctx, ox + 6, y + 7, P.ink);
       px(ctx, ox + 9, y + 7, P.ink);
-      r(ctx, ox + 7, y + 8, 2, 2, P.ink);      // open mouth
+      r(ctx, ox + 7, y + 8, 2, 2, P.ink);
     } else if (pose === "read0" || pose === "read1") {
-      // Looking down at the book: eyes one row lower.
+
       px(ctx, ox + 6, y + 8, P.ink);
       px(ctx, ox + 9, y + 8, P.ink);
     } else {
@@ -575,49 +505,49 @@ const PixelArt = (function () {
       px(ctx, ox + 9, y + 7, P.ink);
     }
 
-    /* ---- arms & props: this is what distinguishes the states ---- */
+
     if (pose === "read0" || pose === "read1") {
-      // Both arms forward, holding an open book at chest height.
+
       r(ctx, ox + 2, y + 12, 2, 4, col.robe);
       r(ctx, ox + 12, y + 12, 2, 4, col.robe);
       r(ctx, ox + 2, y + 15, 2, 2, P.skin);
       r(ctx, ox + 12, y + 15, 2, 2, P.skin);
 
-      r(ctx, ox + 3, y + 13, 10, 5, P.parchD);      // covers
-      r(ctx, ox + 4, y + 14, 4, 3, P.parchL);       // left page
-      r(ctx, ox + 9, y + 14, 3, 3, P.parchL);       // right page
-      r(ctx, ox + 8, y + 13, 1, 5, P.woodD);        // spine
-      // The only difference between read0 and read1 is which page has
-      // a line of text on it -- that alternation reads as page-turning.
+      r(ctx, ox + 3, y + 13, 10, 5, P.parchD);
+      r(ctx, ox + 4, y + 14, 4, 3, P.parchL);
+      r(ctx, ox + 9, y + 14, 3, 3, P.parchL);
+      r(ctx, ox + 8, y + 13, 1, 5, P.woodD);
+
+
       r(ctx, pose === "read0" ? ox + 5 : ox + 10, y + 15, 2, 1, P.ink2);
 
     } else if (pose === "type0" || pose === "type1") {
-      // Arms down and forward onto a keyboard, one hand lower per frame.
-      const lh = pose === "type0" ? 0 : 1;         // left-hand offset
-      const rh = pose === "type0" ? 1 : 0;         // right-hand offset
+
+      const lh = pose === "type0" ? 0 : 1;
+      const rh = pose === "type0" ? 1 : 0;
       r(ctx, ox + 2, y + 11, 2, 4, col.robe);
       r(ctx, ox + 12, y + 11, 2, 4, col.robe);
       r(ctx, ox + 2, y + 15 + lh, 2, 2, P.skin);
       r(ctx, ox + 12, y + 15 + rh, 2, 2, P.skin);
-      r(ctx, ox + 4, y + 17, 8, 2, P.ink2);        // keyboard
-      r(ctx, ox + 5, y + 17, 6, 1, P.wallL);       // keys catching light
+      r(ctx, ox + 4, y + 17, 8, 2, P.ink2);
+      r(ctx, ox + 5, y + 17, 6, 1, P.wallL);
 
     } else if (pose === "cheer") {
-      // Arms thrown up.
+
       r(ctx, ox + 2, y + 7, 2, 5, col.robe);
       r(ctx, ox + 12, y + 7, 2, 5, col.robe);
       r(ctx, ox + 2, y + 6, 2, 2, P.skin);
       r(ctx, ox + 12, y + 6, 2, 2, P.skin);
 
     } else if (pose === "sad") {
-      // Arms hanging limp, slightly narrower stance.
+
       r(ctx, ox + 3, y + 11, 2, 6, col.robeD);
       r(ctx, ox + 11, y + 11, 2, 6, col.robeD);
       r(ctx, ox + 3, y + 17, 2, 2, P.skinD);
       r(ctx, ox + 11, y + 17, 2, 2, P.skinD);
 
     } else {
-      // Idle: arms at the sides.
+
       r(ctx, ox + 2, y + 11, 2, 5, col.robe);
       r(ctx, ox + 12, y + 11, 2, 5, col.robe);
       r(ctx, ox + 2, y + 16, 2, 2, P.skin);
@@ -637,20 +567,20 @@ const PixelArt = (function () {
    * and which way the face is pointing.
    */
   function charWalkFrame(ctx, ox, oy, dir, step, col) {
-    const y = oy + (step ? 1 : 0);      // the same one-pixel bob as idle
+    const y = oy + (step ? 1 : 0);
     const side = dir === "left" || dir === "right";
 
-    // The shadow stays put while the body bobs.
+
     r(ctx, ox + 4, oy + 22, 8, 2, "rgba(27,21,38,0.35)");
 
-    /* ---- legs: together, or one forward and one back ---- */
+
     if (!step) {
       r(ctx, ox + 5, y + 18, 2, 4, P.ink2);
       r(ctx, ox + 9, y + 18, 2, 4, P.ink2);
       r(ctx, ox + 4, y + 21, 3, 2, P.ink);
       r(ctx, ox + 9, y + 21, 3, 2, P.ink);
     } else if (side) {
-      // Seen from the side the stride reads front-to-back, not apart.
+
       r(ctx, ox + 6, y + 18, 2, 4, P.ink2);
       r(ctx, ox + 8, y + 18, 2, 3, P.ink2);
       r(ctx, ox + 3, y + 21, 4, 2, P.ink);
@@ -662,7 +592,7 @@ const PixelArt = (function () {
       r(ctx, ox + 10, y + 21, 3, 2, P.ink);
     }
 
-    /* ---- robe / torso: a touch narrower side-on ---- */
+
     const tx = side ? ox + 5 : ox + 4;
     const tw = side ? 6 : 8;
     r(ctx, tx, y + 10, tw, 9, col.robe);
@@ -671,16 +601,16 @@ const PixelArt = (function () {
     r(ctx, tx, y + 17, tw, 2, col.robeD);
     if (!side) r(ctx, ox + 7, y + 10, 2, 7, col.trim);
 
-    /* ---- head ---- */
+
     r(ctx, ox + 5, y + 4, 6, 6, P.skin);
     r(ctx, ox + 5, y + 4, 6, 1, P.skinL);
     r(ctx, ox + 6, y + 10, 4, 1, P.skinD);
 
-    /* ---- hair, and the face only where a face would be visible ---- */
+
     r(ctx, ox + 4, y + 2, 8, 3, col.hair);
     if (dir === "up") {
-      // Walking away: the back of the head is all hair, no features. That
-      // absence is the entire signal that the agent is heading upscreen.
+
+
       r(ctx, ox + 5, y + 4, 6, 5, col.hair);
     } else if (dir === "down") {
       r(ctx, ox + 4, y + 5, 1, 2, col.hair);
@@ -688,14 +618,14 @@ const PixelArt = (function () {
       px(ctx, ox + 6, y + 7, P.ink);
       px(ctx, ox + 9, y + 7, P.ink);
     } else {
-      // Side-on: hair covers the trailing half, one eye on the leading one.
+
       const lead = dir === "right";
       r(ctx, lead ? ox + 4 : ox + 8, y + 4, 4, 5, col.hair);
       px(ctx, lead ? ox + 9 : ox + 6, y + 7, P.ink);
-      r(ctx, lead ? ox + 11 : ox + 4, y + 8, 1, 1, P.skinD);   // nose
+      r(ctx, lead ? ox + 11 : ox + 4, y + 8, 1, 1, P.skinD);
     }
 
-    /* ---- arms: one forward, one back on the stepping frame ---- */
+
     if (side) {
       const ax = dir === "right" ? ox + 9 : ox + 5;
       r(ctx, ax, y + 11, 2, step ? 4 : 5, col.robe);
@@ -720,12 +650,12 @@ const PixelArt = (function () {
 
     r(ctx, ox + 4, oy + 22, 8, 2, "rgba(27,21,38,0.3)");
 
-    /* ---- legs, folded forward rather than hanging ---- */
+
     if (side) {
       const f = dir === "right" ? 1 : -1;
       r(ctx, ox + 6, y + 15, 2, 3, P.ink2);
-      r(ctx, ox + 6 + 3 * f, y + 15, 3, 2, P.ink2);   // thigh forward
-      r(ctx, ox + 6 + 5 * f, y + 15, 2, 3, P.ink);    // shin down
+      r(ctx, ox + 6 + 3 * f, y + 15, 3, 2, P.ink2);
+      r(ctx, ox + 6 + 5 * f, y + 15, 2, 3, P.ink);
     } else {
       r(ctx, ox + 5, y + 15, 2, 3, P.ink2);
       r(ctx, ox + 9, y + 15, 2, 3, P.ink2);
@@ -733,7 +663,7 @@ const PixelArt = (function () {
       r(ctx, ox + 9, y + 17, 3, 2, P.ink);
     }
 
-    /* ---- torso ---- */
+
     const tx = side ? ox + 5 : ox + 4;
     const tw = side ? 6 : 8;
     r(ctx, tx, y + 7, tw, 8, col.robe);
@@ -741,12 +671,12 @@ const PixelArt = (function () {
     r(ctx, tx + tw, y + 8, 1, 6, col.robeD);
     if (!side) r(ctx, ox + 7, y + 7, 2, 6, col.trim);
 
-    /* ---- head ---- */
+
     r(ctx, ox + 5, y + 1, 6, 6, P.skin);
     r(ctx, ox + 5, y + 1, 6, 1, P.skinL);
     r(ctx, ox + 4, oy + 4, 8, 3, col.hair);
     if (dir === "up") {
-      r(ctx, ox + 5, y + 1, 6, 5, col.hair);          // back of the head
+      r(ctx, ox + 5, y + 1, 6, 5, col.hair);
     } else if (dir === "down") {
       px(ctx, ox + 6, y + 4, P.ink);
       px(ctx, ox + 9, y + 4, P.ink);
@@ -756,7 +686,7 @@ const PixelArt = (function () {
       px(ctx, lead ? ox + 9 : ox + 6, y + 4, P.ink);
     }
 
-    /* ---- arms resting in the lap / on the table ---- */
+
     if (side) {
       const ax = dir === "right" ? ox + 10 : ox + 4;
       r(ctx, ax, y + 9, 2, 4, col.robe);
@@ -782,20 +712,10 @@ const PixelArt = (function () {
     return s.cv;
   }
 
-  /* ================================================================
-     EMOTES
-
-     Little icons that pop above a sprite's head. At 16 pixels tall a
-     character's pose alone is ambiguous, so the emote is what actually
-     tells you "searching" from "writing" at a glance. This is exactly
-     how Stardew/Harvest Moon communicate NPC state.
-
-     6-frame sheet of 14x14: search, book, pen, check, cross, wait
-     ================================================================ */
 
   const EMOTES = ["search", "book", "pen", "check", "cross", "wait",
-    // Phase 3, for the off-duty routine. The pack has no frames for
-    // drinking, sleeping or talking, so the icon carries the whole meaning.
+
+
     "mug", "zzz", "chat"];
 
   function emoteSheet() {
@@ -805,30 +725,30 @@ const PixelArt = (function () {
     EMOTES.forEach(function (name, i) {
       const o = i * 14;
 
-      // Shared bubble: parchment square with a dark outline and a tail.
+
       r(c, o + 1, 0, 12, 11, P.ink);
       r(c, o + 2, 1, 10, 9, P.parchL);
-      r(c, o + 5, 11, 3, 2, P.ink);     // tail pointing down at the head
+      r(c, o + 5, 11, 3, 2, P.ink);
       r(c, o + 5, 11, 2, 1, P.parchL);
 
       if (name === "search") {
-        // magnifying glass
+
         r(c, o + 4, 3, 4, 1, P.ink2);
         r(c, o + 3, 4, 1, 3, P.ink2);
         r(c, o + 8, 4, 1, 3, P.ink2);
         r(c, o + 4, 7, 4, 1, P.ink2);
         r(c, o + 4, 4, 4, 3, P.cyan);
-        r(c, o + 8, 7, 2, 2, P.woodD);  // handle
+        r(c, o + 8, 7, 2, 2, P.woodD);
       } else if (name === "book") {
         r(c, o + 3, 3, 8, 5, P.parchD);
         r(c, o + 4, 4, 3, 3, P.white);
         r(c, o + 8, 4, 3, 3, P.white);
         r(c, o + 7, 3, 1, 5, P.woodD);
       } else if (name === "pen") {
-        r(c, o + 8, 2, 2, 2, P.brass);  // nib end
+        r(c, o + 8, 2, 2, 2, P.brass);
         r(c, o + 7, 4, 2, 2, P.brassD);
         r(c, o + 5, 6, 2, 2, P.woodD);
-        r(c, o + 3, 8, 8, 1, P.ink2);   // the line being written
+        r(c, o + 3, 8, 8, 1, P.ink2);
       } else if (name === "check") {
         r(c, o + 4, 6, 2, 2, P.green);
         r(c, o + 5, 7, 2, 2, P.green);
@@ -842,21 +762,21 @@ const PixelArt = (function () {
           px(c, o + 5 + k, 3 + k, P.red);
         }
       } else if (name === "wait") {
-        // three dots -- the universal "stalled, not dead" signal
+
         r(c, o + 3, 5, 2, 2, P.ink2);
         r(c, o + 6, 5, 2, 2, P.ink2);
         r(c, o + 9, 5, 2, 2, P.ink2);
       } else if (name === "mug") {
-        // steaming cup: body, handle, two curls of steam
+
         r(c, o + 4, 5, 6, 4, P.white);
-        r(c, o + 4, 5, 6, 1, P.parchD);     // coffee surface
-        r(c, o + 10, 6, 1, 2, P.ink2);      // handle
-        r(c, o + 4, 9, 6, 1, P.ink2);       // base shadow
+        r(c, o + 4, 5, 6, 1, P.parchD);
+        r(c, o + 10, 6, 1, 2, P.ink2);
+        r(c, o + 4, 9, 6, 1, P.ink2);
         px(c, o + 5, 3, P.parchD);
         px(c, o + 6, 2, P.parchD);
         px(c, o + 8, 3, P.parchD);
       } else if (name === "zzz") {
-        // three Z's climbing away, biggest last -- reads as asleep
+
         const zed = function (x, y, w) {
           r(c, o + x, y, w, 1, P.ink2);
           r(c, o + x, y + w, w, 1, P.ink2);
@@ -866,7 +786,7 @@ const PixelArt = (function () {
         zed(6, 4, 3);
         zed(9, 2, 2);
       } else if (name === "chat") {
-        // two speech tails facing each other: a conversation, not a thought
+
         r(c, o + 3, 3, 5, 4, P.cyan);
         r(c, o + 4, 7, 2, 1, P.cyan);
         r(c, o + 7, 5, 4, 4, P.brassL);
@@ -876,23 +796,8 @@ const PixelArt = (function () {
     return s.cv;
   }
 
-  /* ================================================================
-     BITMAP FONT + NAMEPLATES
 
-     Why a hand-made 3x5 font instead of Press Start 2P for the in-game
-     nameplates: in a real browser the web-font version came out smeared.
-     Phaser rasterises text into the 320x240 canvas at 7px -- off the
-     font's native 8px grid, so the glyph edges get anti-aliased -- and the
-     browser then magnifies that blur 2-3x. The outline stroke made it worse.
 
-     A bitmap font cannot blur: each glyph is a 3x5 grid of on/off pixels,
-     drawn with the same fillRect as everything else, so it lands exactly
-     on the pixel grid at any zoom. 5px tall is also small enough that
-     nameplates stop colliding with the emote icons. This is how GBA-era
-     games did small labels.
-     ================================================================ */
-
-  // Each glyph: 5 rows of 3 columns, "#" = lit.
   const GLYPHS = {
     A: [".#.", "#.#", "###", "#.#", "#.#"], B: ["##.", "#.#", "##.", "#.#", "##."],
     C: [".##", "#..", "#..", "#..", ".##"], D: ["##.", "#.#", "#.#", "#.#", "##."],
@@ -952,14 +857,11 @@ const PixelArt = (function () {
     r(c, 1, 0, w - 2, h, bg);
     r(c, 0, 1, w, h - 2, bg);
     drawText(c, text, 3, 1, fg);
-    r(c, 3, 7, w - 6, 1, accent);                          // identity underline
-    r(c, 1, h, w - 2, 1, "rgba(27,21,38,0.45)");           // drop shadow
+    r(c, 3, 7, w - 6, 1, accent);
+    r(c, 1, h, w - 2, 1, "rgba(27,21,38,0.45)");
     return s.cv;
   }
 
-  /* ================================================================
-     Registration into Phaser
-     ================================================================ */
 
   /** Texture keys, published so the itch.io swap described at the top of
       this file knows exactly what to override. */
@@ -998,8 +900,8 @@ const PixelArt = (function () {
     add(TEXTURE_KEYS.chair, chair());
     add(TEXTURE_KEYS.scroll, scroll());
     add(TEXTURE_KEYS.monitor, monitor());
-    // The case starts empty; game.js redraws it as soon as it knows how
-    // many reports are actually on file.
+
+
     add(TEXTURE_KEYS.archiveCase, archiveCase(0));
     add(TEXTURE_KEYS.breakTable, breakTable());
     add(TEXTURE_KEYS.coffee, coffeeMaker());
@@ -1035,7 +937,7 @@ const PixelArt = (function () {
    */
   function registerNameplate(scene, agentId, text, accentColor) {
     // The underline colour identifies the agent. The generated art uses the
-    // robe colour; the Modern Interiors theme passes its outfit colour in.
+
     const accent = accentColor || colorsFor(agentId).robe;
     const keys = { normal: "plate-" + agentId, hover: "plate-" + agentId + "-hover" };
     if (!scene.textures.exists(keys.normal)) {
@@ -1070,7 +972,7 @@ const PixelArt = (function () {
     const z = scale || 2;
     const out = surface(13 * z, 13 * z);
     out.ctx.imageSmoothingEnabled = false;
-    // Crop x 2..14, y 1..14 -- head plus a little shoulder.
+
     out.ctx.drawImage(src.cv, 2, 1, 13, 13, 0, 0, 13 * z, 13 * z);
     return out.cv.toDataURL();
   }

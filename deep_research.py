@@ -1,49 +1,4 @@
-"""
-deep_research.py -- time-boxed DEEP research mode.
-
-run_pipeline(topic, mode="deep") in multi_agent.py hands off to run_deep()
-here. Normal mode never touches this file.
-
-WHAT "DEEP" MEANS HERE
-    A paper-style report (~2,000-3,000 words): abstract, introduction, method,
-    themed sections with numbered citations, discussion, limitations,
-    conclusion, references, and a section-by-section fact check.
-
-THE TWO HARD CONSTRAINTS, AND HOW THIS FILE MEETS THEM
-    1. Free tiers only. Groq's free plan allows 8,000 tokens per minute PER
-       MODEL. One model cannot write a paper quickly, so the work is spread
-       across several free models, each with its own separate budget. A small
-       scheduler (ModelPool) tracks every model's last-60-seconds usage and
-       sends each request to one that has room, instead of hitting a limit
-       and sleeping.
-    2. At most 5 minutes. A Deadline object watches the clock. Every stage
-       checks how much time is left and shrinks itself if needed (skip the
-       gap-filling round, write shorter sections, skip verification). The run
-       always finishes with a report instead of running over.
-
-WHY THE OLD REPORTS WERE SHALLOW (measured, not guessed)
-    Scraped pages are typically 35,000-60,000 characters. Normal mode keeps
-    only the first 3,000 -- about 5% of the page, often just the navigation
-    and intro. Deep mode splits each page into paragraphs and keeps the ones
-    most relevant to the question (select_relevant), from anywhere in the page.
-
-WHERE PAGES COME FROM
-    web_sources.py: DuckDuckGo search + free direct downloads first, Firecrawl
-    only as a guarded fallback. Firecrawl's free tier turned out to allow ~10
-    scrapes per minute and to charge +1 credit per PDF page (see that file).
-
-MEASURED MODEL BEHAVIOUR THAT SHAPED THE ROLES (Sept 2026, free tier)
-    gpt-oss-120b   best reasoning; with reasoning_effort="low" it stops burning
-                   ~800 hidden "reasoning" tokens per call (they count against
-                   the per-minute limit) with no visible quality loss.
-    qwen3.8-27b    fast, no hidden reasoning, keeps citations well -> extraction.
-    gpt-oss-20b    fastest, but drops citations -> verification, not writing.
-    compound-mini  advertises a 70,000 tokens/minute budget, BUT it calls other
-                   models internally and its requests are charged to THEIR
-                   limits (a real run got 429s naming gpt-oss-120b and
-                   llama-3.3-70b). So it is only a last resort, and its calls
-                   are also charged to the gpt-oss-120b bucket.
-"""
+"""Time-boxed deep research mode used by :mod:`multi_agent`."""
 
 import json
 import os
@@ -58,42 +13,28 @@ import groq
 
 import web_sources
 
-
-# ---------------------------------------------------------------------------
-# Tunables. Everything that trades depth against time lives here.
-# ---------------------------------------------------------------------------
-
-DEADLINE_SECONDS = 300          # the user's hard cap: 5 minutes
-SAFETY_RESERVE = 15             # keep this much back for saving + final events
-SUB_QUESTIONS = (4, 5)          # deep mode asks for 4-5 lines of inquiry
-SOURCES_ROUND_1 = 6             # sources per sub-question in round one
-SOURCES_ROUND_2 = 4             # sources per follow-up question in round two
-EXCERPT_CHARS = 1800            # relevant text kept per source. 2800 made each extraction
-                                # prompt ~6K tokens, so only ONE fit per model per minute and
-                                # scouts queued for ~60s (measured); 1800 fits two per minute.
-FIRECRAWL_CREDIT_CAP = 25       # most credits one deep run may spend on fallback pages
-PAPERS_PER_SCOUT = 2            # Europe PMC papers blended in, science/health topics only
+DEADLINE_SECONDS = 300
+SAFETY_RESERVE = 15
+SUB_QUESTIONS = (4, 5)
+SOURCES_ROUND_1 = 6
+SOURCES_ROUND_2 = 4
+EXCERPT_CHARS = 1800
+FIRECRAWL_CREDIT_CAP = 25
+PAPERS_PER_SCOUT = 2
 
 MODELS = {
     "gpt-oss-120b":  {"id": "openai/gpt-oss-120b", "tpm": 8000,  "rpm": 30, "extra": {"reasoning_effort": "low"}},
     "gpt-oss-20b":   {"id": "openai/gpt-oss-20b",  "tpm": 8000,  "rpm": 30, "extra": {"reasoning_effort": "low"}},
     "qwen3.8-27b":   {"id": "qwen/qwen3.8-27b",    "tpm": 8000,  "rpm": 30, "extra": {}},
-    # tpm set conservatively: its real cost lands on other models' limits.
     "compound-mini": {"id": "groq/compound-mini",  "tpm": 8000,  "rpm": 30, "extra": {},
                       "also_charges": ["gpt-oss-120b"]},
 }
-
-# Which models may do which job, in order of preference. If the first one is
-# busy or out of budget, the scheduler moves down the list.
 ROLES = {
     "plan":    ["gpt-oss-120b", "qwen3.8-27b"],
     "extract": ["qwen3.8-27b", "gpt-oss-20b", "gpt-oss-120b", "compound-mini"],
     "review":  ["gpt-oss-120b", "qwen3.8-27b", "compound-mini"],
-    # gpt-oss-20b keeps fewer citations (5 in a 596-word test section), so it
-    # only takes writing overflow; every section is still fact-checked after.
     "write":   ["qwen3.8-27b", "gpt-oss-120b", "gpt-oss-20b", "compound-mini"],
     "frame":   ["gpt-oss-120b", "qwen3.8-27b", "compound-mini"],
-    # gpt-oss-20b rejected a JSON-mode verify call (HTTP 400) in testing, so it is last.
     "verify":  ["qwen3.8-27b", "gpt-oss-120b", "gpt-oss-20b", "compound-mini"],
 }
 
@@ -108,11 +49,6 @@ class DeadlineReached(Exception):
 class QuotaExhausted(Exception):
     """Raised when every model allowed for a job is out of its free quota."""
 
-
-# ---------------------------------------------------------------------------
-# The clock
-# ---------------------------------------------------------------------------
-
 class Deadline:
     def __init__(self, seconds):
         self.start = time.monotonic()
@@ -124,11 +60,6 @@ class Deadline:
     def remaining(self):
         """Seconds left before we must start wrapping up."""
         return self.seconds - SAFETY_RESERVE - self.elapsed()
-
-
-# ---------------------------------------------------------------------------
-# The scheduler: spreads calls over several free model budgets
-# ---------------------------------------------------------------------------
 
 def estimate_tokens(text):
     """Cheap token estimate: roughly 3.5 characters per token for English."""
@@ -178,7 +109,6 @@ class Bucket:
                 entry = [now, tokens]
                 self.window.append(entry)
                 return entry, 0.0
-            # Work out when enough of the window will have expired.
             freed, wait = 0, 60.0
             for ts, t in self.window:
                 freed += t
@@ -200,23 +130,17 @@ class Bucket:
 
 class ModelPool:
     def __init__(self, client, deadline, on_wait=None):
-        # max_retries=0: the SDK's own silent retries would fight our scheduler.
         self.client = client.with_options(max_retries=0)
         self.deadline = deadline
         self.buckets = {name: Bucket(name, cfg) for name, cfg in MODELS.items()}
         self.on_wait = on_wait
         self.usage = {name: 0 for name in MODELS}
         self.calls = {name: 0 for name in MODELS}
-        self.errors = []            # every failed call, saved to the trace
+        self.errors = []
         self.lock = threading.Lock()
 
     def _note(self, model, role, err):
         msg = str(err)
-        # Put the limit type FIRST: the full message is long and was being
-        # truncated before the words saying whether it is a per-minute or a
-        # per-day limit -- the one thing a slow run needs explaining.
-        # Groq words these several ways, e.g. "on tokens per minute (TPM)" and,
-        # for qwen, a separate "on input tokens per minute (ITPM): Limit 7000".
         kind = re.search(r"on ((?:input |output )?tokens|requests) per (minute|day)", msg)
         named = re.search(r"for model `([^`]+)`", msg)
         prefix = ""
@@ -236,11 +160,8 @@ class ModelPool:
         or QuotaExhausted if every allowed model is out of its daily budget.
         """
         estimate = estimate_tokens(prompt) + max_out
-        skip = set()                # models that cannot take THIS request
+        skip = set()
         attempts = 0
-        # A single call may not spend more than max_wait seconds waiting for
-        # capacity. Without this cap, one call with every model rate-limited
-        # retried for 180s (measured in a test), starving every later stage.
         started = time.monotonic()
 
         while True:
@@ -298,8 +219,6 @@ class ModelPool:
                 self.buckets[chosen].settle(entry, 0)
                 self._note(chosen, role, e)
                 msg = str(e)
-                # The error may name a DIFFERENT model (compound-mini's internal
-                # calls). Block whichever of our buckets that model belongs to.
                 targets = {chosen}
                 named = re.search(r"for model `([^`]+)`", msg)
                 if named:
@@ -318,7 +237,7 @@ class ModelPool:
                         self.buckets[t].blocked_until = time.monotonic() + max(wait, 1.0)
             except groq.APIStatusError as e:
                 self.buckets[chosen].settle(entry, 0)
-                skip.add(chosen)          # e.g. 413 too large, 400 bad JSON: try another model
+                skip.add(chosen)
                 self._note(chosen, role, e)
             except (groq.APITimeoutError, groq.APIConnectionError) as e:
                 self.buckets[chosen].settle(entry, 0)
@@ -328,11 +247,6 @@ class ModelPool:
             attempts += 1
             if attempts > 6:
                 raise QuotaExhausted(role)
-
-
-# ---------------------------------------------------------------------------
-# Picking the relevant parts of a page
-# ---------------------------------------------------------------------------
 
 STOPWORDS = set("""a an and are as at be been but by can could did do does for from had has have how
 if in into is it its of on or should so than that the their them then there these they this to
@@ -365,10 +279,10 @@ def select_relevant(markdown, question, budget=EXCERPT_CHARS):
             continue
         links = len(re.findall(r"\]\(", text))
         words = max(1, len(text.split()))
-        if links / words > 0.08:        # mostly links: navigation, not content
+        if links / words > 0.08:
             continue
-        text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)          # images
-        text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)       # keep link text only
+        text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)
+        text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
         hits = len(terms & _terms(text))
         score = hits / (words ** 0.35) + (0.3 if i < 6 else 0)
         paragraphs.append((score, i, text))
@@ -384,18 +298,13 @@ def select_relevant(markdown, question, budget=EXCERPT_CHARS):
             break
     return "\n\n".join(t for _, t in sorted(chosen))
 
-
-# ---------------------------------------------------------------------------
-# Source numbering shared by every scout
-# ---------------------------------------------------------------------------
-
 class SourceRegistry:
     """Gives every distinct URL one citation number, safely across threads."""
 
     def __init__(self):
         self.lock = threading.Lock()
         self.by_url = {}
-        self.items = []          # [{"id", "url", "title"}]
+        self.items = []
 
     def add(self, url, title):
         with self.lock:
@@ -451,11 +360,6 @@ def _parse_json(text):
                 pass
     return None
 
-
-# ---------------------------------------------------------------------------
-# The run
-# ---------------------------------------------------------------------------
-
 def run_deep(topic, on_event, core):
     """
     Deep research for `topic`. `core` is the multi_agent module, passed in
@@ -478,8 +382,6 @@ def run_deep(topic, on_event, core):
     last_wait_note = {}
 
     def on_wait(agent, seconds):
-        # At most one "waiting" update per agent every 6s: the first test run
-        # emitted 21 of them, which would make the room flicker between states.
         now = time.monotonic()
         if now - last_wait_note.get(agent, 0) < 6:
             return
@@ -489,13 +391,11 @@ def run_deep(topic, on_event, core):
 
     pool = ModelPool(core.groq_client, deadline, on_wait=on_wait)
     registry = SourceRegistry()
-    fetch_problems = []          # every search/scrape failure, recorded in the trace
+    fetch_problems = []
     guard = web_sources.FirecrawlGuard(core.app, credit_cap=FIRECRAWL_CREDIT_CAP)
-    source_mix = {}              # how many pages came from each route, for the trace
+    source_mix = {}
 
     emit(on_event, "run_started", topic=topic, mode="deep", deadline=DEADLINE_SECONDS)
-
-    # ------------------------------------------------------------ 1. plan
     phase("planning", "The planner is designing the study.")
     state(on_event, PLANNER, "thinking", "Designing the study...")
     plan_prompt = f"""You are planning a research paper on: "{topic}".
@@ -533,8 +433,6 @@ Return ONLY JSON:
     emit(on_event, "plan_ready", sub_questions=questions, mode="deep", title=title)
     state(on_event, PLANNER, "done", f"Study designed: {len(questions)} lines of inquiry.",
           sub_questions=len(questions))
-
-    # ------------------------------------------------------------ 2. scouts
     def scout(index, question, query, n_sources, round_no):
         agent = core.researcher_id(index)
         label = "Follow-up" if round_no == 2 else "Searching"
@@ -546,9 +444,6 @@ Return ONLY JSON:
 
         try:
             if biomedical:
-                # Web pages and open-access papers are fetched at the same time.
-                # Papers matter most on science topics, where publishers block
-                # ordinary downloads.
                 with ThreadPoolExecutor(max_workers=2) as both:
                     web_future = both.submit(web_sources.gather, query, n_sources, guard, on_page, True)
                     paper_future = both.submit(web_sources.europepmc_papers, question, PAPERS_PER_SCOUT)
@@ -624,13 +519,9 @@ Source excerpts:
     notes_by_q = {i: n for i, n in enumerate(notes) if n}
     if not notes_by_q:
         raise core.PipelineError("All sub-questions failed to find usable content.")
-
-    # Scouts hand their notes to the Scribe (a cue for the room's animation).
     for n in notes_by_q.values():
         emit(on_event, "handoff", from_agent=n["agent"], to_agent=SCRIBE,
              message=f"{n['agent']} delivers notes")
-
-    # ------------------------------------------------------------ 3. review
     phase("review", "The planner reviews the notes for gaps.")
     state(on_event, PLANNER, "thinking", "Reviewing the scouts' notes for gaps...")
     digest = "\n\n".join(f"SUB-QUESTION {i + 1}: {n['question']}\n{n['findings'][:1700]}"
@@ -663,12 +554,9 @@ Notes:
         sections.append({"title": s["title"].strip(), "focus": (s.get("focus") or "").strip(),
                          "draws": draws or list(notes_by_q)[:1], "extra": []})
     if len(sections) < 2:
-        # Fallback outline: one section per answered sub-question.
         sections = [{"title": n["question"].rstrip("?"), "focus": "", "draws": [i], "extra": []}
                     for i, n in notes_by_q.items()]
     state(on_event, PLANNER, "done", f"Outline ready: {len(sections)} sections.")
-
-    # ------------------------------------------------------------ 4. round two (only if time allows)
     follow_ups = [f for f in review.get("follow_ups", []) if isinstance(f, dict) and f.get("question")][:2]
     rounds = 1
     if follow_ups and deadline.remaining() >= 170:
@@ -692,18 +580,15 @@ Notes:
                      message=f"{n['agent']} delivers follow-up notes")
     elif follow_ups:
         phase("round2_skipped", "No time for a second round; writing with what we have.")
-
-    # ------------------------------------------------------------ 5. write sections
     remaining = deadline.remaining()
     words = 450 if remaining > 120 else 320 if remaining > 75 else 200
     phase("writing", f"The scribe writes {len(sections)} sections (~{words} words each).")
 
-    SECTION_NOTES_CHARS = 6500   # ~1,800 tokens: two sections fit in one model's minute
+    SECTION_NOTES_CHARS = 6500
 
     def material_for(sec):
         parts = [notes_by_q[i]["findings"] for i in sec["draws"] if i in notes_by_q]
         material = "\n\n".join(parts + sec["extra"])
-        # Keep whole bullet lines when trimming, so no citation is cut in half.
         if len(material) > SECTION_NOTES_CHARS:
             material = material[:SECTION_NOTES_CHARS].rsplit("\n", 1)[0]
         return material
@@ -746,12 +631,9 @@ Notes:
 
     body_sections = [(sections[k], written[k]) for k in range(len(sections)) if written[k]]
     if not body_sections:
-        # Out of time or capacity: still deliver something honest and useful.
         body_sections = [({"title": notes_by_q[i]["question"].rstrip("?")}, notes_by_q[i]["findings"])
                          for i in notes_by_q]
     state(on_event, SCRIBE, "done", "All sections drafted.")
-
-    # ------------------------------------------------------------ 6. frame + verify, in parallel
     phase("verifying", "The warden checks every section while the scribe frames the paper.")
     framing = {}
     verdicts = [None] * len(body_sections)
@@ -764,15 +646,10 @@ Notes:
 Below are the opening parts of its body sections and the open gaps/conflicts the research found.
 
 Write these parts, using only this material (no new facts, no citations needed):
-### ABSTRACT
 (about 150 words)
-### INTRODUCTION
 (about 180 words: context, why it matters, what the paper covers)
-### DISCUSSION
 (about 220 words: what the findings mean together, tensions between them)
-### LIMITATIONS
 (about 110 words: be concrete about what the sources could not establish)
-### CONCLUSION
 (about 140 words)
 
 Use exactly those five ### headings, in that order.
@@ -782,8 +659,6 @@ Body sections:
 
 Gaps and conflicts found:
 {gaps or '(none recorded)'}"""
-        # Up to two attempts: if the first answer is missing parts (or the call
-        # failed), ask again, preferring the high-capacity model the second time.
         for attempt, role in enumerate(("frame", "write")):
             if deadline.remaining() < 20:
                 break
@@ -853,8 +728,6 @@ NOTES:
         warden_msg = "No time left to verify."
     state(on_event, WARDEN, "done" if checked else "failed", warden_msg)
     trace.append({"step": "verification", "note": verification_note, "verdicts": verdicts})
-
-    # ------------------------------------------------------------ 7. assemble
     phase("filing", "The scribe assembles and files the paper.")
     body = []
     n = 1
@@ -876,8 +749,6 @@ NOTES:
             body.append(f"## {n}. {label}\n\n{framing[key]}")
             n += 1
     body_text = "\n\n".join(body)
-
-    # Renumber citations by first appearance, so the paper starts at [1].
     order = []
     for m in re.finditer(r"\[(\d{1,3})\]", body_text):
         sid = int(m.group(1))

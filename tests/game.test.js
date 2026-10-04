@@ -1,16 +1,3 @@
-/* Behaviour checks for game.js, run headless. Run: node tests/game.test.js
-
-   There is no browser here, so this file stubs the three things game.js
-   talks to: a canvas (for pixel-art.js to draw into), Phaser (scene, sprites,
-   tweens, timers) and window.matchMedia. The stubs are deliberately dumb --
-   they record what was asked of them and nothing else. What is under test is
-   the choreography: who walks where, when, and what they play on arrival.
-
-   The Modern Interiors theme cannot be tested this way (its sheets are PNGs
-   decoded by the browser), so the procedural theme drives the behaviour
-   tests and the interiors theme gets a static check that it registers the
-   same animation keys. */
-
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
@@ -21,7 +8,7 @@ function check(name, ok, detail) {
   console.log((ok ? "PASS  " : "FAIL  ") + name + (ok || !detail ? "" : "  -- " + detail));
 }
 
-/* ----------------------------------------------------------- stubs */
+
 
 function ctxStub() {
   const noop = function () {};
@@ -41,18 +28,11 @@ function canvasStub() {
   return { width: 0, height: 0, getContext: ctxStub, toDataURL: function () { return ""; } };
 }
 
-const timers = [];     // pending delayedCalls, fired by tick()
-const tweens = [];     // active tweens, advanced by tick()
+const timers = [];
+const tweens = [];
 
-/* The tween stub WRITES TO ITS TARGET, on purpose.
-
-   It used to be a no-op that returned a handle, and that hid a real bug:
-   the looping "typing" bob owns sprite.y, and a walk starting while it was
-   still running fought it for the same property every frame, so the agent
-   walked on the spot forever. A stub that never moves anything can never
-   catch that. This one is crude -- linear, and it treats yoyo+repeat as a
-   perpetual oscillation -- but it does the one thing that matters: it keeps
-   writing to the target until something kills it. */
+/* The tween stub writes to its target so overlapping typing and walking
+   animations remain observable in headless tests. */
 function stepTweens(ms) {
   for (let i = tweens.length - 1; i >= 0; i--) {
     const t = tweens[i];
@@ -114,7 +94,7 @@ function sceneStub() {
       exists: function () { return false; },
       addCanvas: function () { return { add: function () {} }; },
       // A canvas texture, as Phaser hands one back: the archive case is
-      // repainted through this rather than replaced.
+
       get: function () {
         return {
           getContext: ctxStub,
@@ -174,7 +154,7 @@ function tick(scene, game, ms) {
   }
 }
 
-/* ------------------------------------------------------- the sandbox */
+
 
 const sandbox = {
   console: console,
@@ -197,7 +177,7 @@ const Phaser = {
     this.scene = sc;
     this.sceneObj = cfg.scene;
     cfg.scene.create.call(sc);
-    // create() stores the scene it was called on; keep a handle for update().
+
     this.sceneObj.update = cfg.scene.update.bind(sc);
   }
 };
@@ -210,8 +190,8 @@ vm.createContext(sandbox);
     sandbox, { filename: f });
 });
 
-// `const GuildGame = ...` is a lexical binding, so it never lands on the
-// sandbox object: ask the context for it by name instead.
+
+
 const G = vm.runInContext("GuildGame", sandbox);
 const World = vm.runInContext("GuildWorld", sandbox);
 const game = G.boot();
@@ -229,12 +209,12 @@ function trace(game, ms, st) {
   return seen;
 }
 
-/* --------------------------------------------------------- the tests */
+
 
 check("boots on the procedural theme", G.themeName() === "procedural");
 check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
 
-/* Every animation key the state table can ask for must exist. */
+
 {
   const st = G._stations.planner;
   const want = ["idle-up", "idle-down", "idle-left", "idle-right",
@@ -248,7 +228,7 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
     missing.join(", "));
 }
 
-/* The three fixed roles start at home. */
+
 {
   const at = function (id, zone) {
     const s = G._stations[id], z = World.zone(zone);
@@ -258,9 +238,9 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
     at("planner", "board") && at("synthesizer", "scribe") && at("verifier", "warden"));
 }
 
-/* Scouts enter at the gate and walk to their own desks. */
+
 {
-  G._setRoutine(false);       // the routine is tested on its own, further down
+  G._setRoutine(false);
   G.setPartySize(3);
   const s0 = G._stations["researcher-0"];
   check("scouts appear at the gate",
@@ -275,9 +255,7 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
   check("scouts walk from the gate to their desks", arrived);
 }
 
-/* ---- work happens where you sit ----
-   Scouts search, read and write at their OWN desk; the warden verifies at
-   its own computer. Nothing about doing the work moves anybody any more. */
+
 {
   const s = G._stations["researcher-1"];
   const desk = World.zone("desk1");
@@ -304,7 +282,7 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
   G.setAgentState("researcher-1", "idle");
 }
 
-/* The warden verifies at its own desk and computer; it never walks over. */
+
 {
   const w = G._stations.verifier;
   const zones = [];
@@ -318,8 +296,7 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
   G.setAgentState("verifier", "idle");
 }
 
-/* The planner works at the monitor with the same front-facing work animation
-   as the scribe and warden. */
+
 {
   const p = G._stations.planner;
   G.setAgentState("planner", "thinking");
@@ -333,7 +310,7 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
 }
 
 
-/* A handoff is a round trip: out with the findings, back to the desk. */
+
 {
   const s = G._stations["researcher-0"];
   G.setAgentState("researcher-0", "typing");
@@ -345,7 +322,7 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
   check("the scout walks home after handing over", s.zone === "desk0", s.zone);
 }
 
-/* Each section sends the scribe to the board and back. */
+
 {
   const sc = G._stations.synthesizer;
   G.setAgentState("synthesizer", "typing");
@@ -358,13 +335,13 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
     /-type$/.test(sc.sprite.anims.currentAnim.key), sc.sprite.anims.currentAnim.key);
 }
 
-/* Nameplate and emote travel with the body. */
+
 {
   const s = G._stations["researcher-1"];
   G.setAgentState("researcher-1", "searching");
   tick(game.scene, game, 2000);
-  // Agents with a seated desk wear their name above their head, because
-  // below the feet is where their monitor and mug are.
+
+
   const wantY = s.plateAbove
     ? Math.round(s.sprite.y) - (s.sprite.height + 14)
     : Math.round(s.sprite.y) + 2;
@@ -377,11 +354,7 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
   tick(game.scene, game, 14000);
 }
 
-/* ---- the off-duty routine ----
 
-   The contract is not "it moves". It is: every agent works through ITS OWN
-   fixed rota, in order; every activity happens at a spot it walked to; no
-   two agents ever occupy the same spot; and real work always wins. */
 {
   const ROTA = {
     planner: ["coffee", "browse", "chat"],
@@ -395,9 +368,9 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
   G._setRoutine(true);
   ids.forEach(function (id) { G.setAgentState(id, "idle"); });
 
-  // Watch for a couple of minutes of game time, sampling who is where and
-  // what they are up to.
-  const seen = {};            // id -> activities performed, in order
+
+
+  const seen = {};
   const zoneClashes = [];
   ids.forEach(function (id) { seen[id] = []; });
   for (let t = 0; t < 150000; t += 200) {
@@ -408,7 +381,7 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
       const act = G._activityOf(id);
       if (act && seen[id] && seen[id][seen[id].length - 1] !== act) seen[id].push(act);
       // Two agents standing still on the same named spot is the collision
-      // the routine is supposed to make impossible.
+
       if (!st.route) {
         if (occupied[st.zone]) zoneClashes.push(st.zone + ": " + occupied[st.zone] + " + " + id);
         occupied[st.zone] = id;
@@ -420,20 +393,20 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
     ids.every(function (id) { return seen[id].length > 0; }),
     JSON.stringify(seen));
 
-  // Activities must appear in rota order (skips are allowed -- a taken chair
-  // or a chat with nobody free moves the agent on down its list).
+
+
   let orderBad = null;
   ids.forEach(function (id) {
     const rota = ROTA[id];
     let at = rota.indexOf(seen[id][0]);
     if (at === -1) { orderBad = id + " did " + seen[id][0] + ", not on its rota"; return; }
     seen[id].forEach(function (act) {
-      // A chat can be started BY someone else, so it may appear on an agent
-      // whose own list never mentions it. Every other activity must be its own.
+
+
       if (act === "chat" && rota.indexOf("chat") === -1) return;
       const want = rota.indexOf(act);
       if (want === -1) { orderBad = id + " did " + act + ", not on its rota"; return; }
-      // walking forward around the ring, never backwards
+
       let steps = (want - at + rota.length) % rota.length;
       if (steps === 0 && seen[id].length > 1) steps = rota.length;
       at = want;
@@ -450,7 +423,7 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
     JSON.stringify(seen));
 }
 
-/* Work always wins: an event mid-activity sends the agent back to its post. */
+
 {
   const p = G._stations.planner;
   let guard = 0;
@@ -466,7 +439,7 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
   G._setRoutine(false);
 }
 
-/* reset() clears the scouts and puts the fixed three back. */
+
 {
   G.reset();
   tick(game.scene, game, 20000);
@@ -477,10 +450,7 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
     G._stations.verifier.zone === "warden");
 }
 
-/* ---- the planner's rounds ----
-   The planner's own work ends seconds into a run, so it comes down to look
-   over the scouts' shoulders -- but twice at most, and never while it is
-   itself working. */
+
 {
   G._setRoutine(false);
   G.reset();
@@ -497,10 +467,10 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
   check("but no more than twice a run", visits.length <= 2, visits.join(","));
   check("and ends back in its cabin", p.zone === "board", p.zone);
 
-  // a fresh run, and it is willing again
+
   G.reset();
   tick(game.scene, game, 6000);
-  G.setAgentState("planner", "typing");      // busy: must be ignored
+  G.setAgentState("planner", "typing");
   G.inspectScouts();
   tick(game.scene, game, 3000);
   check("it never abandons its own work to do rounds", p.zone === "board", p.zone);
@@ -513,15 +483,13 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
   tick(game.scene, game, 20000);
 }
 
-/* ---- nobody walks through anybody ----
-   The planner's trip home from the desk row used to cut straight through
-   whichever scout was in the way. */
+
 {
   G._setRoutine(false);
   G.reset();
   tick(game.scene, game, 4000);
   G.setPartySize(5);
-  tick(game.scene, game, 14000);          // scouts settle at their desks
+  tick(game.scene, game, 14000);
 
   const p = G._stations.planner;
   const others = ["researcher-0", "researcher-1", "researcher-2",
@@ -537,7 +505,7 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
     others.forEach(function (id) {
       const o = G._stations[id];
       if (!o) return;
-      // two bodies within four pixels of each other is a walk-through
+
       if (Math.abs(o.sprite.x - p.sprite.x) < 4 && Math.abs(o.sprite.y - p.sprite.y) < 4) {
         overlap = id + " at " + Math.round(o.sprite.x) + "," + Math.round(o.sprite.y);
       }
@@ -547,7 +515,7 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
   check("and still gets back to its cabin", p.zone === "board", p.zone);
 }
 
-/* The planner's desk has a side-positioned monitor and a mug on the desktop. */
+
 {
   const seat = World.zone("board");
   const screen = World.FURNITURE.filter(function (f) { return f.id === "monitor"; })
@@ -563,9 +531,7 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
   check("the planner faces the desk", seat.face === "down");
 }
 
-/* ---- the archive ----
-   The case is a readout: one spine per saved report. Filing is a trip the
-   scribe actually makes, and the spine lands when it arrives, not before. */
+
 {
   G._setRoutine(false);
   G.setArchiveCount(4);
@@ -585,14 +551,14 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
   G.setArchiveCount(9);
   check("the count can be set from the server's list", G._archiveCount() === 9);
 
-  // the scroll on the desk is a flag, not a state the room can get stuck in
+
   G.setReportReady(true);
   const lit = G._scrollVisible();
   G.setReportReady(false);
   check("the ready scroll shows and clears", lit === true && G._scrollVisible() === false);
 }
 
-/* After a quest, scouts gather standing around the shared RPG break table. */
+
 {
   G.setPartySize(5);
   G.gatherScouts();
@@ -610,8 +576,7 @@ check("canvas is 480x270", game.cfg.width === 480 && game.cfg.height === 270);
   G.reset();
 }
 
-/* The interiors theme is not loadable here, so check it statically: it must
-   register the same animation keys the state table asks for. */
+
 {
   const src = fs.readFileSync(
     path.join(__dirname, "..", "static", "js", "interiors-art.js"), "utf8");

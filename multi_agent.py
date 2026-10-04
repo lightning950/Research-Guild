@@ -9,21 +9,12 @@ import json
 import re
 import sys
 
-import web_sources   # free-first page sourcing shared with deep mode
-
-# Windows consoles default to the cp1252 encoding, which cannot represent many
-# characters the models happily produce (smart quotes, en-dashes, the
-# non-breaking hyphen U+2011, emoji...). print() then raises
-# UnicodeEncodeError and kills the run -- not because anything is wrong with
-# the research, but because it could not be *displayed*.
-#
-# Switching stdout to UTF-8 with errors="replace" means an unprintable
-# character shows as a placeholder instead of crashing the pipeline.
+import web_sources
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
-    pass  # Not all environments expose reconfigure; never fail on this.
+    pass
 
 load_dotenv()
 
@@ -35,23 +26,6 @@ client = genai.Client(api_key=gemini_key)
 groq_key = os.getenv("GROQ_API_KEY")
 groq_client = Groq(api_key=groq_key)
 print("Keys loaded successfully")
-
-
-# ---------------------------------------------------------------------------
-# Progress events (added for the web UI)
-#
-# The pipeline used to report progress only two ways: print() while running,
-# and the `trace` list, which you only get back AFTER everything finishes.
-# A live UI needs to know things the moment they happen, so every function
-# below now takes an optional `on_event` callback.
-#
-# on_event=None (the default) means "nobody is watching" and the pipeline
-# behaves exactly as it did before. eval.py and the command-line run pass
-# nothing, so they are unaffected.
-# ---------------------------------------------------------------------------
-
-# Agent ids used in events. The UI keys its sprites off these exact strings,
-# so keep them stable.
 PLANNER = "planner"
 SYNTHESIZER = "synthesizer"
 VERIFIER = "verifier"
@@ -135,11 +109,6 @@ def _groq_chat(prompt, on_event=None, agent=None, retry_message="Model call fail
             response = groq_client.chat.completions.create(
                 model="openai/gpt-oss-120b",
                 messages=[{"role": "user", "content": prompt}],
-                # "low" cuts the model's hidden reasoning tokens by ~90%
-                # (measured: 803 -> ~12 per call) with no visible quality loss.
-                # Those hidden tokens count against Groq's free 8,000
-                # tokens-per-minute limit, so they were the main reason runs
-                # sat waiting. Same model, same prompts, same output format.
                 reasoning_effort="low",
             )
             return response.choices[0].message.content
@@ -225,9 +194,6 @@ def research_subquestion(sub_question, index=0, on_event=None, guard=None):
 
     content = ""
     sources = []
-    # Pages are fetched in parallel (8 at a time) and gathering stops once 5
-    # are readable. Fetching them one after another made a normal run take
-    # ~150s: each site that blocks downloads can hold a scout for 10s.
     def on_page(done, total, url, ok):
         _state(on_event, agent, "reading", f"Reading {_short_url(url)}",
                url=_short_url(url), done=done, total=total)
@@ -251,8 +217,6 @@ Only use facts present in the content below. Do not add outside knowledge.
 Content:
 {content}
 """
-
-    # "typing" is the animation state for a sprite at a keyboard.
     _state(on_event, agent, "typing",
            f"Writing up {len(sources)} sources...",
            done=len(urls), total=len(urls), sources_used=len(sources))
@@ -357,15 +321,12 @@ def run_pipeline(topic, on_event=None, mode="normal"):
     deep_research.py: a paper-style report, time-boxed to 5 minutes.
     """
     if mode == "deep":
-        # Imported here, not at the top, so normal runs never load it. We pass
-        # this module in so deep_research shares our API clients and helpers
-        # without a circular import.
         from deep_research import run_deep
         return run_deep(topic, on_event, sys.modules[__name__])
     if mode != "normal":
         raise ValueError(f"Unknown mode {mode!r}; use 'normal' or 'deep'.")
 
-    trace=[]  #creates an empty list that we'll fill with a record of each step as the pipeline runs
+    trace=[]
 
     _emit(on_event, "run_started", topic=topic)
 
@@ -375,7 +336,6 @@ def run_pipeline(topic, on_event=None, mode="normal"):
     except Exception as e:
         print(f"Planning failed completely: {e}")
         print("Cannot continue without a research plan.")
-        # Was exit(). See PipelineError's docstring for why that was a problem.
         raise PipelineError(f"Planning failed: {e}")
 
     trace.append({
@@ -387,9 +347,6 @@ def run_pipeline(topic, on_event=None, mode="normal"):
     print(f"Generated {len(sub_questions)} sub-questions:")
     for q in sub_questions:
         print(f"  - {q}")
-
-    # The UI needs this before anything else: it decides how many researcher
-    # sprites to put in the room (2-5, however many this topic produced).
     _emit(on_event, "plan_ready", sub_questions=sub_questions)
     _state(on_event, PLANNER, "done",
            f"Split the quest into {len(sub_questions)} lines of inquiry.",
@@ -397,13 +354,11 @@ def run_pipeline(topic, on_event=None, mode="normal"):
 
     print("\nResearching each sub-question (in parallel)...")
     research_results = []
-    # One guard per run: caps Firecrawl fallback at 10 credits for this run.
     guard = web_sources.FirecrawlGuard(app, credit_cap=10)
     for line in guard.log:
         print("  " + line)
 
-    with ThreadPoolExecutor(max_workers=len(sub_questions)) as executor: #creates a pool of workers, one per sub-question, so all of them can run at the same time instead of waiting in line
-        # enumerate() so each researcher carries the index of its own sprite.
+    with ThreadPoolExecutor(max_workers=len(sub_questions)) as executor:
         future_to_question = {
             executor.submit(research_subquestion, q, i, on_event, guard): q
             for i, q in enumerate(sub_questions)
@@ -453,8 +408,6 @@ def run_pipeline(topic, on_event=None, mode="normal"):
         json.dump(trace, f, indent=2)
 
     print(f"Trace saved to {trace_filename}")
-
-    # Everything the results screen needs, in one final event.
     _emit(
         on_event,
         "run_complete",
@@ -475,8 +428,6 @@ def safe_filename(topic):
     safe = safe.strip().replace(' ', '_')
     return safe
 if __name__ == "__main__":
-    # python multi_agent.py          -> normal research
-    # python multi_agent.py --deep   -> deep research paper (max 5 minutes)
     mode = "deep" if "--deep" in sys.argv else "normal"
     topic = input(f"What topic do you want to research ({mode})? ")
     run_pipeline(topic, mode=mode)

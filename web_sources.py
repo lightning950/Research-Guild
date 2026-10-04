@@ -1,30 +1,4 @@
-"""
-web_sources.py -- where BOTH research modes get their web pages from.
-
-HYBRID, FREE FIRST
-    1. Search DuckDuckGo (the `ddgs` library; free, no API key).
-    2. Download each result directly and pull out the readable text with
-       `trafilatura`, which runs on your own machine (free, unlimited).
-    3. Only when a site blocks direct downloading, fall back to Firecrawl --
-       and only inside strict guards, because Firecrawl credits are limited.
-
-WHY IT CHANGED (all measured on 16 Sept 2026)
-    - Firecrawl's free tier allows only ~10 scrapes per minute. Firing 15 at
-      once returned 5 "Rate limit exceeded" errors, and the old pipeline
-      swallowed those errors, so reports silently lost pages.
-    - Firecrawl charges +1 credit per PDF page. A few long research PDFs can
-      cost hundreds of credits; the account went to -519 of 1,000.
-    - DuckDuckGo + direct fetching: 5 parallel searches in 13s, 30 pages in
-      12s, 16 of 30 usable (the rest blocked downloads). Asking for roughly
-      twice the pages we need covers the blocked ones.
-
-FIRECRAWL GUARDS (all of them must pass before a single credit is spent)
-    - The account balance, checked once per run, is above MIN_BALANCE.
-    - This run has not used its per-run credit cap.
-    - The page is not a PDF (by extension, or by a free HEAD request).
-    - No more than FIRECRAWL_PER_MINUTE scrapes in the last minute; if the
-      window is full we skip the page rather than wait.
-"""
+"""Search and fetch research sources, using guarded paid fallbacks."""
 
 import threading
 import time
@@ -35,15 +9,15 @@ from concurrent.futures import TimeoutError as FuturesTimeout
 
 try:
     from ddgs import DDGS
-except ImportError:          # pragma: no cover - reported clearly at use time
+except ImportError:
     DDGS = None
 
 try:
     import trafilatura
     from trafilatura.settings import use_config
     _TRAF_CONFIG = use_config()
-    _TRAF_CONFIG.set("DEFAULT", "DOWNLOAD_TIMEOUT", "10")   # don't let one slow site stall a scout
-except ImportError:          # pragma: no cover
+    _TRAF_CONFIG.set("DEFAULT", "DOWNLOAD_TIMEOUT", "10")
+except ImportError:
     trafilatura = None
     _TRAF_CONFIG = None
 
@@ -51,13 +25,10 @@ except ImportError:          # pragma: no cover
 BLOCKED_DOMAINS = ["facebook.com", "twitter.com", "x.com", "instagram.com",
                    "linkedin.com", "tiktok.com", "pinterest.com", "youtube.com"]
 
-MIN_BALANCE = 100            # never let Firecrawl fallback push the account below this
-FIRECRAWL_PER_MINUTE = 8     # measured limit is ~10/min; stay under it
+MIN_BALANCE = 100
+FIRECRAWL_PER_MINUTE = 8
 FETCH_WORKERS = 8
-MIN_TEXT = 600               # measured: Springer's cookie wall is 286 chars, PMC's bot check 131
-
-# Phrases that mark a page as a wall, not content. Only applied to SHORT pages:
-# a real 20,000-character article may legitimately mention cookies.
+MIN_TEXT = 600
 JUNK_PHRASES = ("enable javascript", "enable cookies", "accept cookies", "cookie settings",
                 "access denied", "are you a robot", "verify you are human", "captcha",
                 "unusual traffic", "checking your browser", "preparing to download",
@@ -82,7 +53,7 @@ def _looks_like_pdf(url):
         with urllib.request.urlopen(req, timeout=5) as resp:
             return "pdf" in (resp.headers.get("Content-Type") or "").lower()
     except Exception:
-        return False          # unknown: the per-run credit cap still bounds the risk
+        return False
 
 
 class FirecrawlGuard:
@@ -101,7 +72,7 @@ class FirecrawlGuard:
         self.window = deque()
         self.balance = None
         self.disabled_reason = None
-        self.log = []                 # what happened, for the trace
+        self.log = []
         self._check_balance()
 
     def _check_balance(self):
@@ -114,7 +85,6 @@ class FirecrawlGuard:
             if self.balance is None or self.balance < MIN_BALANCE:
                 self.disabled_reason = f"credit balance {self.balance} is below {MIN_BALANCE}"
         except Exception as e:
-            # If we cannot confirm the balance, we do not spend credits.
             self.disabled_reason = f"could not read credit balance ({type(e).__name__})"
         if self.disabled_reason:
             self.log.append("Firecrawl fallback off: " + self.disabled_reason)
@@ -132,7 +102,7 @@ class FirecrawlGuard:
             if len(self.window) >= FIRECRAWL_PER_MINUTE:
                 return None
             self.window.append(now)
-            self.spent += 1                      # reserve before the network call
+            self.spent += 1
         if _looks_like_pdf(url):
             with self.lock:
                 self.spent -= 1
@@ -150,18 +120,10 @@ class FirecrawlGuard:
                 if "Payment" in type(e).__name__ or "Insufficient credits" in str(e):
                     self.disabled_reason = "out of credits"
             return None
-
-
-# Search engines reachable through the ddgs library, fastest first (measured
-# one query each, 16 Sept 2026): brave 0.6s, duckduckgo 0.8s, bing 3.7s,
-# yahoo 1.4s. The library's default "auto" setting took 7.9s because it queries
-# several engines. google, mojeek and wikipedia returned nothing.
 ENGINES = ["brave", "duckduckgo", "bing", "yahoo"]
-# Slow (7.5s) but it answered when the others were throttling this machine,
-# so it is tried last and never rotated to the front.
 LAST_RESORT_ENGINES = ["yandex"]
-MAX_PARALLEL_SEARCHES = 3      # 4+ searches at once from one machine got throttled
-FETCH_BUDGET_SECONDS = 20      # stop waiting for slow sites after this long
+MAX_PARALLEL_SEARCHES = 3
+FETCH_BUDGET_SECONDS = 20
 
 _search_gate = threading.Semaphore(MAX_PARALLEL_SEARCHES)
 _rotation = [0]
@@ -288,12 +250,11 @@ def _fetch_hits(hits, want, guard, on_page, budget=FETCH_BUDGET_SECONDS, scholar
         if text:
             return text, "direct"
         if scholarly:
-            rescued = doi_abstract(hit["url"])      # free: Europe PMC abstract by DOI
+            rescued = doi_abstract(hit["url"])
             if rescued:
                 if not hit["title"]:
                     hit["title"] = rescued["title"]
                 return rescued["text"], rescued["via"]
-        # Never spend a credit on a page nobody is waiting for any more.
         if guard is not None and not enough.is_set():
             text = guard.try_scrape(hit["url"])
             if is_real_content(text):
@@ -326,24 +287,8 @@ def _fetch_hits(hits, want, guard, on_page, budget=FETCH_BUDGET_SECONDS, scholar
     finally:
         enough.set()
         ex.shutdown(wait=False, cancel_futures=True)
-
-    # Keep search-rank order, which is roughly relevance order.
     pages = [r for r in results if r][:want]
     return pages, problems
-
-
-# ---------------------------------------------------------------------------
-# Europe PMC: free, official API for biomedical and life-science papers
-#
-# Why: academic publishers (ScienceDirect, Springer, Nature, PMC's website)
-# block direct downloads, so science topics got few sources. Europe PMC's REST
-# API is built for programs -- no key, no credits. Measured 16 Sept 2026:
-# search 4.2s (7,282 open-access hits for "microplastics human health"),
-# full text 35,875 chars in 9.3s, a blocked Springer paper's abstract found by
-# DOI in 0.7s. It only covers biomedical/life science: a finance query
-# returned diabetes papers, so callers must only use it for those topics, and
-# every result must also pass a relevance check against the question.
-# ---------------------------------------------------------------------------
 
 import json as _json
 import re as _re
@@ -351,7 +296,7 @@ import urllib.parse as _urlparse
 
 EPMC_BASE = "https://www.ebi.ac.uk/europepmc/webservices/rest"
 EPMC_HEADERS = {"User-Agent": "ResearchGuild/1.0 (personal research tool)"}
-_epmc_gate = threading.Semaphore(4)          # be a polite API client
+_epmc_gate = threading.Semaphore(4)
 
 _STOP = set("the a an and or of in on for to with by from is are was were be how what why "
             "which who does do their its this that these those human humans effect effects".split())
@@ -446,8 +391,6 @@ def europepmc_papers(question, want=2, budget=15.0):
                     pages.append(page)
         except FuturesTimeout:
             problems.append(f"europepmc budget of {budget:.0f}s reached; using abstracts for the rest")
-            # The abstracts already arrived with the search results, so a slow
-            # full-text download never costs us the paper entirely.
             for i, c in enumerate(candidates):
                 if i not in finished and is_real_content(c["abstract"]):
                     pages.append({"url": c["url"], "title": c["title"], "text": c["abstract"],

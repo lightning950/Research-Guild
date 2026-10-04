@@ -1,25 +1,9 @@
-/* =========================================================================
-   app.js -- the controller.
-
-   Receives pipeline events over Socket.IO and drives every surface:
-
-     the Phaser scene        sprites / animation          -> game.js
-     the party panel         per-agent state + progress   -> DOM
-     the dialogue box        what is happening, in words  -> DOM
-     the agent detail card   everything one agent did     -> DOM
-     sound                   milestones only              -> sound.js
-
-   All of them read the SAME events. Nothing is on a timer, nothing is
-   simulated, and nothing is inferred by parsing English out of a message --
-   the backend sends structured numbers for that.
-   ========================================================================= */
-
 (function () {
   "use strict";
 
-  // autoConnect:false -- we connect only once the art has loaded (see Boot).
+
   // Otherwise a page joining a live run could receive the catch-up replay
-  // before the room exists to show it in.
+
   const socket = io({ autoConnect: false });
 
   const $ = function (id) { return document.getElementById(id); };
@@ -44,26 +28,24 @@
     chipMd: $("ready-md"), chipAgain: $("ready-again")
   };
 
-  /* ---------------------------------------------------------------- state */
 
-  const members = new Map();     // agentId -> { row, stateEl, fillEl }
-  const agentLog = new Map();    // agentId -> [agent_state events], for the card
+
+  const members = new Map();
+  const agentLog = new Map();
   let running = false;
   let replaying = false;         // true while catch_up replays: no sound, no typing
   let clockTimer = null;
   let lastReport = "";
 
-  // Everything known about the current (or last) run.
+
   const run = { topic: "", startTs: 0, subQuestions: [], complete: null };
 
-  /* =================================================================
-     Boot
-     ================================================================= */
 
-  // Two things settle before the game starts:
+
+
   //   1. web fonts (3s ceiling, so a slow font CDN never leaves a blank screen)
-  //   2. the Modern Interiors art pack. load() resolves false rather than
-  //      failing if the files are missing, and the game falls back to the
+
+
   //      generated art -- so either way the app boots.
   const fontsReady = (document.fonts && document.fonts.ready) || Promise.resolve();
   const artReady = (typeof InteriorsArt !== "undefined") ? InteriorsArt.load() : Promise.resolve(false);
@@ -74,26 +56,12 @@
     GuildGame.boot();
     fitStage();
     GuildGame.onAgentClick(openCard);
-    // The case in the corner is the archive: clicking it opens the same
-    // screen the title menu does, because it is the same shelf.
+
+
     GuildGame.onArchiveClick(openArchive);
     buildHowList();
     socket.connect();
   });
-
-  /* =================================================================
-     FITTING THE HALL TO THE WINDOW
-
-     The hall is 16:9 and so is its box, which means the only question is
-     how big that box may be. Width it takes from its column. Height it
-     cannot know in CSS -- "whatever is left after the top bar, the
-     dialogue and the quest bar" is not something a stylesheet can express
-     -- so it is measured here and handed back as a max-width.
-
-     Without this the stage stretched to fill the column, Phaser fitted a
-     16:9 canvas inside a taller box, and the difference showed up as bands
-     of dead screen above and below the room: 80px of them at 1440x900.
-     ================================================================= */
 
   const cabinetEl = document.querySelector(".cabinet");
   const consoleEl = document.querySelector(".console");
@@ -102,15 +70,15 @@
 
   function fitStage() {
     if (!cabinetEl || !consoleEl || !screenEl || !stageEl) return;
-    // Below the breakpoint the layout stacks and scrolls; let CSS have it.
+
     if (window.matchMedia("(max-width: 860px)").matches) {
       stageEl.style.width = "";
       return;
     }
 
-    // clientWidth/clientHeight INCLUDE padding, so the cabinet's own padding
-    // comes off both. Leaving it in handed the hall twelve pixels that
-    // belonged to the frame, and the dock hung off the right of the window.
+
+
+
     const cab = getComputedStyle(cabinetEl);
     const innerW = cabinetEl.clientWidth -
       parseFloat(cab.paddingLeft) - parseFloat(cab.paddingRight);
@@ -122,34 +90,34 @@
 
     const prevMax = consoleEl.style.maxHeight;
     const prevW = stageEl.style.width;
-    // Measure with the ceiling off: while the console is clipped by
-    // max-height, "console minus hall" comes out NEGATIVE and the hall gets
-    // handed more room the bigger it already is -- stable, and completely
-    // wrong.
+
+
+
+
     consoleEl.style.maxHeight = "none";
 
-    // 1. Everything beside the hall: frame, padding, borders. Measured with
-    //    the hall stretched wide, because the console must be at a REALISTIC
-    //    width while we measure -- squeeze it and the quest bar wraps to two
-    //    rows, which would inflate the height measured in step 2.
+
+
+
+
     stageEl.style.width = innerW + "px";
     const sideChrome = consoleEl.offsetWidth - stageEl.offsetWidth;
     const availW = innerW - (dock ? dock.offsetWidth : 0) - gap - sideChrome - 2;
 
-    // 2. Everything above and below it: top bar, dialogue, quest bar, gaps.
+
     stageEl.style.width = Math.max(240, availW) + "px";
     const chrome = consoleEl.offsetHeight - stageEl.offsetHeight;
     consoleEl.style.maxHeight = prevMax;
 
     const availH = innerH - chrome - 2;
 
-    // The room is 16:9, so whichever constraint bites first decides its
-    // size; the console shrinks to it and the pair centres, which keeps the
-    // leftover as page behind the cabinet rather than dead screen beside
-    // the room.
+
+
+
+
     const w = Math.max(240, Math.floor(Math.min(availH * 16 / 9, availW)));
     stageEl.style.width = w + "px";
-    if (prevW === stageEl.style.width) return;           // nothing moved
+    if (prevW === stageEl.style.width) return;
 
     // The box just changed under Phaser; ask it to measure again.
     if (typeof GuildGame !== "undefined" && GuildGame.refit) GuildGame.refit();
@@ -157,30 +125,28 @@
 
   window.addEventListener("resize", fitStage);
   if (window.ResizeObserver) {
-    // Watch the CABINET, not the console. Observing the console meant
-    // watching the very box this function resizes: every call triggered
-    // another, the browser dropped the storm of notifications, and the
-    // stage kept whatever width it happened to have when the music
-    // stopped -- which at some window sizes was taller than the window.
-    // The cabinet only ever changes with the window itself.
+
+
+
+
+
+
     new ResizeObserver(fitStage).observe(cabinetEl);
   }
-  // Once at load, and again after the canvas exists: the first run measures
-  // an empty stage, so the real numbers only arrive with the game.
+
+
   fitStage();
   window.addEventListener("load", fitStage);
 
-  /* =================================================================
-     QUEST BAR: depth, countdown, and the report that is still warm
-     ================================================================= */
+
 
   const MODE_KEY = "guild.mode";
-  // Normal is the default: it is the cheaper, faster answer, and someone
-  // who has not chosen yet should not be committed to a five-minute run.
+
+
   let mode = "normal";
   try {
     if (window.localStorage && localStorage.getItem(MODE_KEY) === "deep") mode = "deep";
-  } catch (err) { /* private browsing: the default stands */ }
+  } catch (err) {  }
 
   function setMode(next) {
     mode = next === "deep" ? "deep" : "normal";
@@ -194,19 +160,16 @@
       : "name a subject to research...";
     try {
       if (window.localStorage) localStorage.setItem(MODE_KEY, mode);
-    } catch (err) { /* nothing to remember it with: this session only */ }
+    } catch (err) {  }
   }
 
-  // No "is a run going?" check here: setRunning() disables both buttons for
-  // the duration, so a click cannot arrive at a moment when it would be wrong.
+
+
   el.modeNormal.addEventListener("click", function () { setMode("normal"); });
   el.modeDeep.addEventListener("click", function () { setMode("deep"); });
   setMode(mode);
 
-  /* ---- the clock ----
-     Deep mode promises a report inside five minutes, so a deep run counts
-     DOWN against that promise. A normal run has no deadline to count
-     against, so it counts up and simply says how long it has been going. */
+
   let questClock = null;
 
   function stopClock() {
@@ -236,10 +199,7 @@
     questClock = setInterval(tick, 1000);
   }
 
-  /* ---- REPORT READY ----
-     The results overlay can be closed, and before this the only way back to
-     a finished report was the archive. The chip keeps the last one on the
-     quest bar until the next quest starts. */
+
   function showChip(data) {
     if (!data) return;
     el.chipTopic.textContent = data.topic || "";
@@ -290,7 +250,7 @@
   }
 
   // Browsers only allow audio after a user gesture. Unlock on the very first
-  // click or key press anywhere, so the START chime is never swallowed.
+
   function unlockAudioOnce() {
     Sound.unlock();
     document.removeEventListener("pointerdown", unlockAudioOnce);
@@ -301,9 +261,7 @@
 
   function sfx(name) { if (!replaying) Sound.play(name); }
 
-  /* =================================================================
-     Names and roles
-     ================================================================= */
+
 
   const ROLES = {
     planner: {
@@ -337,22 +295,7 @@
     return m ? Number(m[1]) : -1;
   }
 
-  /* =================================================================
-     Dialogue box -- typewriter with priority
 
-     A real run exposed the problem with a naive typewriter: four scouts
-     work in parallel, so "reading X" lines arrive every few hundred ms and
-     each one interrupted the last mid-word. The box showed fragments like
-     "No" and never a complete sentence.
-
-     The fix is two tiers:
-       - MILESTONES (an agent finishing or failing, the plan, the result)
-         always interrupt immediately.
-       - ROUTINE chatter must wait until the current line has been fully
-         visible for DWELL_MS. Only the newest waiting routine line is kept;
-         older ones are dropped rather than queued, so the box never falls
-         behind the live pipeline. The quest log still records every line.
-     ================================================================= */
 
   const DWELL_MS = 1100;
   let typeTimer = null;
@@ -395,7 +338,7 @@
     el.dlgCue.hidden = true;
 
     // During a catch-up replay, show lines instantly -- typing out forty
-    // historical messages would just be a delay.
+
     if (replaying) {
       el.dlgText.textContent = text;
       typing = false;
@@ -411,8 +354,8 @@
     typeTimer = setInterval(function () {
       i += 1;
       el.dlgText.textContent = text.slice(0, i);
-      // The Pokemon text blip, on milestone lines only and every other
-      // character: per-character on every line of a busy run is a buzzsaw.
+
+
       if (withBlips && i % 2 === 0 && text[i - 1] !== " ") sfx("blip");
       if (i >= text.length) {
         clearInterval(typeTimer);
@@ -425,9 +368,7 @@
     }, step);
   }
 
-  /* =================================================================
-     Party panel
-     ================================================================= */
+
 
   /**
    * Create (or fetch) one party row. Rows are <button>s so they are
@@ -449,7 +390,7 @@
     const chip = document.createElement("span");
     chip.className = "member__chip";
     // Cropped from the same generated spritesheet the game uses, so the
-    // panel can never show a different character than the one on screen.
+
     chip.style.backgroundImage = "url(" + portrait(agentId, 2) + ")";
 
     const body = document.createElement("span");
@@ -492,14 +433,12 @@
     if (typeof event.done === "number" && event.total > 0) {
       return Math.round((event.done / event.total) * 100);
     }
-    if (event.state === "searching") return 8;   // started, nothing countable yet
+    if (event.state === "searching") return 8;
     if (event.state === "typing") return 85;
     return 0;
   }
 
-  /* =================================================================
-     Quest log
-     ================================================================= */
+
 
   function logLine(event, who, what, kind) {
     const nearBottom = el.log.scrollTop + el.log.clientHeight >= el.log.scrollHeight - 40;
@@ -517,13 +456,13 @@
 
     const whatEl = document.createElement("span");
     whatEl.className = "what";
-    // textContent, never innerHTML: scraped domains and model output must
-    // never be interpreted as markup.
+
+
     whatEl.textContent = what;
 
     line.append(stamp, whoEl, whatEl);
     el.log.appendChild(line);
-    // Only auto-scroll if the reader has not scrolled up to look at something.
+
     if (nearBottom) el.log.scrollTop = el.log.scrollHeight;
   }
 
@@ -539,16 +478,13 @@
   }
   el.logToggle.addEventListener("click", function () { setLogOpen(el.log.hidden); });
 
-  // On a phone the log is a long scroll of detail most people never read, and
-  // it pushed the party panel off screen. Start it collapsed there.
+
+
   if (window.matchMedia && window.matchMedia("(max-width: 900px)").matches) {
     setLogOpen(false);
   }
 
-  /* =================================================================
-     Overlays: one stack, so Esc always closes the topmost thing and focus
-     returns to wherever it was before the overlay opened.
-     ================================================================= */
+
 
   const overlayStack = [];
 
@@ -583,7 +519,7 @@
     }
   });
 
-  // Clicking the dimmed backdrop (not the panel itself) closes an overlay.
+
   [el.results, el.archive, el.card, el.how].forEach(function (node) {
     node.addEventListener("click", function (e) {
       if (e.target === node) closeOverlay(node);
@@ -594,9 +530,7 @@
     btn.addEventListener("click", function () { closeOverlay($(btn.dataset.close)); });
   });
 
-  /* =================================================================
-     Title screen
-     ================================================================= */
+
 
   const EXAMPLES = [
     "why did RAM prices suddenly increase",
@@ -618,8 +552,8 @@
     el.examples.appendChild(b);
   });
 
-  // "How it works": the four roles, each with its real portrait. Built after
-  // the art has loaded, so the portraits match the room.
+
+
   function buildHowList() {
   el.howList.innerHTML = "";
   [["planner", ROLES.planner], ["researcher-0", ROLES.researcher],
@@ -679,13 +613,13 @@
     if (item) setActive(item);
   });
 
-  // Mouse hover moves the menu cursor, exactly like keyboard focus does.
+
   el.title.addEventListener("pointerover", function (e) {
     const item = e.target.closest(".menu__item");
     if (item && !item.classList.contains("is-active")) { setActive(item); sfx("select"); }
   });
 
-  // Arrow-key navigation, the way every console menu works.
+
   el.title.addEventListener("keydown", function (e) {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     e.preventDefault();
@@ -699,7 +633,7 @@
 
   el.menuBtn.addEventListener("click", function () { sfx("confirm"); showTitle(); });
 
-  /* ------------------------------------------------------------ sound btn */
+
 
   function paintSoundBtn() {
     const on = Sound.isEnabled();
@@ -709,17 +643,15 @@
   el.soundBtn.addEventListener("click", function () { Sound.toggle(); paintSoundBtn(); });
   paintSoundBtn();
 
-  /* =================================================================
-     Archive
-     ================================================================= */
+
 
   /** The count feeds two things: the menu badge and the bookcase's spines. */
   function refreshArchiveCount() {
     fetch("/api/reports").then(function (r) { return r.json(); }).then(function (list) {
       el.archiveCount.textContent = list.length ? "(" + list.length + ")" : "";
-      // The shelf is the same number in another form: one spine per report.
+
       GuildGame.setArchiveCount(list.length);
-    }).catch(function () { /* the menu badge and the shelf both just wait */ });
+    }).catch(function () {  });
   }
   refreshArchiveCount();
 
@@ -781,9 +713,7 @@
     return b;
   }
 
-  /* =================================================================
-     Agent detail card
-     ================================================================= */
+
 
   let cardAgent = null;
 
@@ -824,7 +754,7 @@
     body.innerHTML = "";
     body.appendChild(node("p", "card__blurb", role.blurb));
 
-    // --- current status ---
+
     const status = section("STATUS");
     const line = node("div", "card__status");
     const chipEl = node("span", "state-chip", last ? GuildGame.stateLabel(last.state) : "idle");
@@ -841,7 +771,7 @@
     }
     body.appendChild(status);
 
-    // --- scout: its question and its sources ---
+
     if (idx >= 0 && run.subQuestions[idx]) {
       const q = section("LINE OF INQUIRY");
       q.appendChild(node("p", "card__question", run.subQuestions[idx]));
@@ -849,7 +779,7 @@
       body.appendChild(sourcesSection(id, idx, events));
     }
 
-    // --- planner: the plan it produced ---
+
     if (id === "planner" && run.subQuestions.length) {
       const plan = section("THE PLAN");
       const ol = node("ol", "card__plan");
@@ -858,7 +788,7 @@
       body.appendChild(plan);
     }
 
-    // --- scribe: link to its output ---
+
     if (id === "synthesizer" && run.complete) {
       const out = section("OUTPUT");
       const words = (run.complete.report || "").trim().split(/\s+/).length;
@@ -873,14 +803,14 @@
       body.appendChild(out);
     }
 
-    // --- warden: its actual verdict, verbatim ---
+
     if (id === "verifier" && run.complete && run.complete.verification_note) {
       const v = section("VERDICT");
       v.appendChild(node("blockquote", "card__verdict", run.complete.verification_note));
       body.appendChild(v);
     }
 
-    // --- timeline ---
+
     const act = section("ACTIVITY");
     if (!events.length) {
       act.appendChild(node("p", "card__muted", "Nothing yet."));
@@ -954,9 +884,7 @@
     return sec;
   }
 
-  /* =================================================================
-     Failure banner
-     ================================================================= */
+
 
   /** A plain-English next step for the errors this pipeline actually hits. */
   function hintFor(error) {
@@ -983,9 +911,7 @@
   function hideBanner() { el.banner.hidden = true; el.input.focus({ preventScroll: true }); }
   el.bannerOk.addEventListener("click", hideBanner);
 
-  /* =================================================================
-     Run lifecycle
-     ================================================================= */
+
 
   function setRunning(on) {
     el.modeNormal.disabled = on;
@@ -1002,7 +928,7 @@
     if (on) {
       const started = Date.now();
       // A 90-second wait with no clock feels broken; with a clock it feels
-      // like work is happening.
+
       clockTimer = setInterval(function () {
         const s = Math.floor((Date.now() - started) / 1000);
         el.model.textContent = Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
@@ -1026,9 +952,7 @@
     GuildGame.reset();
   }
 
-  /* =================================================================
-     Event dispatcher -- the one place pipeline events become UI
-     ================================================================= */
+
 
   function handleEvent(event) {
     switch (event.type) {
@@ -1038,7 +962,7 @@
         hideChip();
         GuildGame.setReportReady(false);
         GuildGame.endGathering();
-        // deep_research.py sends the deadline it is working to; normal runs
+
         // send none, and get a plain elapsed clock.
         startClock(event.deadline || 0);
         say("GUILD", 'A new quest: "' + event.topic + '". The planner begins.', true);
@@ -1049,8 +973,8 @@
       case "plan_ready": {
         const qs = event.sub_questions || [];
         run.subQuestions = qs.slice();
-        // The room is sized by the pipeline's own decision about how many
-        // sub-questions this topic needed.
+
+
         GuildGame.setPartySize(qs.length);
         qs.forEach(function (q, i) {
           member("researcher-" + i);
@@ -1061,8 +985,8 @@
         sfx("summon");
         say("PLANNER", qs.length + " scouts will investigate in parallel.", true);
         logLine(event, null, "Plan ready: " + qs.length + " lines of inquiry.", "system");
-        // The planner's own work is done here; a little later it comes down
-        // to see how the scouts are getting on. game.js caps the rounds.
+
+
         setTimeout(function () { GuildGame.inspectScouts(); }, 18000);
         break;
       }
@@ -1075,7 +999,7 @@
         GuildGame.setAgentState(event.agent, event.state);
         updateMember(event);
 
-        // Second round of the floor when a scout first reports back.
+
         if (event.state === "done" && researcherIndex(event.agent) >= 0) {
           setTimeout(function () { GuildGame.inspectScouts(); }, 2500);
         }
@@ -1085,7 +1009,7 @@
         else if (event.state === "waiting") sfx("wait");
 
         if (event.message) {
-          // Scouts' routine work is low priority; everything else interrupts.
+
           const routine = researcherIndex(event.agent) >= 0 &&
             ["searching", "reading", "typing"].indexOf(event.state) !== -1;
           say(GuildGame.shortName(event.agent), event.message, !routine);
@@ -1101,12 +1025,12 @@
         sfx("fanfare");
         say("GUILD", "The report is complete and sealed.", true);
         logLine(event, null, "Report saved as " + event.report_filename, "done");
-        // The scribe carries it to the archive and shelves it; the spine
-        // appears as it goes in, then we reconcile with what is on disk.
+
+
         GuildGame.setReportReady(true);
         GuildGame.fileReport(function () { refreshArchiveCount(); });
-        // The scouts' work is over: they take the report to the meeting
-        // table and talk it over until the next quest comes in.
+
+
         setTimeout(function () { GuildGame.gatherScouts(); }, 2500);
         showResults(event, "live");
         break;
@@ -1119,17 +1043,14 @@
         showBanner(event.error);
         break;
 
-      /* ---- deep mode only, from deep_research.py ------------------
-         These four have been emitted since Phase 1 and ignored by the UI.
-         Phase 2 turns them into movement: they are the events that say
-         work CHANGED HANDS, which is exactly what walking shows best. */
+
 
       case "phase":
         logLine(event, null, event.message || event.phase, "system");
         break;
 
       case "handoff":
-        // The scout carries its findings to the scribe and walks back.
+
         GuildGame.handoff(event.from_agent, event.to_agent);
         logLine(event, GuildGame.shortName(event.from_agent),
           "Hands findings to " + GuildGame.shortName(event.to_agent) + ".");
@@ -1147,8 +1068,8 @@
       }
 
       case "section":
-        // Each section starts with the scribe fetching the outline from the
-        // board -- the one bit of motion in the long, quiet writing phase.
+
+
         if (event.status === "started") GuildGame.sectionFocus();
         logLine(event, "SCRIBE",
           (event.status === "done" ? "Finished section " : "Writing section ") +
@@ -1158,21 +1079,19 @@
         break;
 
       default:
-        // Unknown types are ignored rather than throwing, so the backend can
-        // add events without breaking an already-open tab.
+
+
         break;
     }
 
-    // Keep an open detail card live.
+
     if (cardAgent && !el.card.hidden &&
         (event.agent === cardAgent || event.type === "plan_ready" || event.type === "run_complete")) {
       renderCard();
     }
   }
 
-  /* =================================================================
-     Results screen -- used for a live finish AND for archive entries
-     ================================================================= */
+
 
   function statPill(key, value) {
     const d = node("div", "stat");
@@ -1232,27 +1151,11 @@
     window.print();
   });
 
-  /* ================================================================
-     REPORT RENDERING
 
-     The old version dropped raw markdown into a <pre>, which was genuinely
-     unreadable: your reports contain GFM tables (rendered as pipe soup),
-     bold/heading syntax shown as literal asterisks and hashes, and LaTeX
-     blocks. Four steps fix it:
-
-       1. Pull LaTeX out first. Markdown eats the backslashes in \[ ... \],
-          so the math has to be extracted BEFORE marked sees it and put back
-          afterwards.
-       2. marked with gfm:true for real tables.
-       3. DOMPurify before it touches the DOM. The report is model output; it
-          is untrusted text and must never be injected as live markup.
-       4. Post-process: wrap tables so wide ones scroll on their own, and
-          promote the trailing Verification Note into a callout.
-     ================================================================ */
 
   function extractMath(md) {
     const blocks = [];
-    // Display: \[ ... \] and $$ ... $$   Inline: \( ... \)
+
     let out = md.replace(/\\\[([\s\S]*?)\\\]/g, function (_, tex) {
       blocks.push({ tex: tex, display: true });
       return "@@MATH" + (blocks.length - 1) + "@@";
@@ -1273,7 +1176,7 @@
     if (!blocks.length) return;
     const hasKatex = typeof window.katex !== "undefined";
 
-    // Walk text nodes only -- we are replacing text, not re-parsing HTML.
+
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     const hits = [];
     while (walker.nextNode()) {
@@ -1303,7 +1206,7 @@
             span.textContent = b.tex.trim();
           }
         } else {
-          // Graceful degradation: a clean monospace formula beats raw
+
           // backslash noise if the KaTeX CDN is unreachable.
           const code = document.createElement("code");
           code.textContent = b.tex.trim();
@@ -1329,12 +1232,12 @@
     const math = extractMath(markdown);
 
     const rawHtml = marked.parse(math.md, {
-      gfm: true,        // tables, strikethrough, autolinks
-      breaks: false     // single newlines are NOT line breaks in these reports
+      gfm: true,
+      breaks: false
     });
 
     // Sanitise before insertion. Non-negotiable: this is LLM output built
-    // from scraped web pages, so it is doubly untrusted.
+
     el.report.innerHTML = DOMPurify.sanitize(rawHtml, {
       ALLOWED_TAGS: [
         "h1", "h2", "h3", "h4", "h5", "h6", "p", "strong", "em", "del", "code",
@@ -1346,9 +1249,9 @@
 
     restoreMath(el.report, math.blocks);
 
-    // --- post-processing ---
 
-    // Wide tables scroll inside their own box instead of stretching the page.
+
+
     el.report.querySelectorAll("table").forEach(function (t) {
       const wrap = document.createElement("div");
       wrap.className = "doc__table-wrap";
@@ -1356,15 +1259,15 @@
       wrap.appendChild(t);
     });
 
-    // External links should not navigate away from the app.
+
     el.report.querySelectorAll("a[href]").forEach(function (a) {
       a.target = "_blank";
       a.rel = "noopener noreferrer";
     });
 
-    // Promote the trailing verification note into a callout. It is the
-    // pipeline's own quality check on itself -- the most important paragraph
-    // in the document, and it was disappearing at the bottom.
+
+
+
     const paras = el.report.querySelectorAll("p");
     for (let i = paras.length - 1; i >= 0; i--) {
       if (/verification note/i.test(paras[i].textContent)) {
@@ -1376,16 +1279,14 @@
     }
   }
 
-  /* =================================================================
-     Socket wiring
-     ================================================================= */
+
 
   socket.on("pipeline_event", handleEvent);
 
   socket.on("catch_up", function (data) {
     // A page that connects mid-run replays what it missed, so refreshing
     // does not leave you staring at an empty room. Replayed events are
-    // silent and untyped; the last line is shown normally afterwards.
+
     setRunning(true);
     replaying = true;
     (data.events || []).forEach(handleEvent);
@@ -1408,9 +1309,7 @@
     say("GUILD", "Cannot reach the server.", true);
   });
 
-  /* =================================================================
-     Input
-     ================================================================= */
+
 
   el.form.addEventListener("submit", function (e) {
     e.preventDefault();
@@ -1424,11 +1323,11 @@
     socket.emit("start_run", { topic: topic, mode: mode });
   });
 
-  // Typing a topic is an implicit "new quest": the title gets out of the way.
+
   el.input.addEventListener("input", function () { if (!el.title.hidden) hideTitle(); });
 
   function hideBannerQuietly() { el.banner.hidden = true; }
 
-  // First paint: title menu up, cursor on NEW QUEST.
+
   showTitle();
 })();

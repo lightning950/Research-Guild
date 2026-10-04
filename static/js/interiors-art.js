@@ -1,62 +1,26 @@
-/* =========================================================================
-   interiors-art.js -- the "Modern Interiors" theme (LimeZu's free pack).
-
-   WHAT THIS FILE DOES
-   Loads the pack's PNGs from static/assets/modern-interiors/, cuts the
-   pieces we need out of the big sheets, recolours the scouts, and knows how
-   to lay the guild hall out with them. game.js asks it for a room and for
-   one "station" per agent, and never needs to know which art is in use.
-
-   IF THE FILES ARE MISSING
-   load() resolves to false and game.js falls back to the generated art in
-   pixel-art.js. That keeps the app working if the pack is ever removed --
-   which matters, because the free version is licensed for NON-COMMERCIAL use
-   only (see static/assets/modern-interiors/ABOUT.md).
-
-   WHY THE ROOM IS TOP-DOWN NOW
-   The generated art was a flat front-on view. This pack is drawn in the
-   classic top-down RPG perspective, so the layout follows it. Every desk in
-   the pack shows its FRONT (drawers, legs) to the camera, so agents stand
-   BEHIND their desks facing us, with the desk hiding their legs -- the
-   classroom-teacher staging. (A first attempt put agents in front of the
-   desks; the desk then sat on their heads like a box.) Rugs finally work
-   too: in a front-on view a rug could not read as lying flat.
-   ========================================================================= */
-
 const InteriorsArt = (function () {
   "use strict";
 
   const BASE = "/static/assets/modern-interiors/";
 
-  /* ----------------------------------------------------------------
-     Casting. The pack has four characters and the guild has up to eight
-     agents, so the three unique roles get their own character and every
-     scout is Adam in a different coloured shirt -- a uniformed team, told
-     apart by colour, which matches the party panel.
-     ---------------------------------------------------------------- */
+
   const CAST = { planner: "Bob", synthesizer: "Amelia", verifier: "Alex" };
   const SCOUT_BASE = "Adam";
 
   // Same five colours the generated art and the party panel already use, so
-  // a scout's shirt, nameplate underline and panel stripe all agree.
+
   const SCOUT_COLORS = ["#3f7fb5", "#4d8f52", "#b5643f", "#2f8f8a", "#8d5a8f"];
 
-  // Each unique role's nameplate accent is taken from their outfit.
+
   const ACCENT = { planner: "#7d8099", synthesizer: "#b95d72", verifier: "#a2394b" };
 
-  // Adam's shirt, exactly as it appears in the sheet. Found by listing every
-  // colour in his front-facing frame; these two are the only purples.
+
+
   const ADAM_SHIRT_MID = [0x80, 0x5e, 0x8e];
   const ADAM_SHIRT_LIGHT = [0x9f, 0x74, 0xa8];
-  const ADAM_SHIRT_DARK = [0x6c, 0x59, 0x81];   // rare: a few fold pixels in motion frames
+  const ADAM_SHIRT_DARK = [0x6c, 0x59, 0x81];
 
-  /* ----------------------------------------------------------------
-     Crop rectangles [x, y, w, h] into Interiors_free_16x16.png.
 
-     These were not eyeballed. Objects in the sheet do not sit neatly on the
-     16px grid, so each box was found by scanning for the opaque pixels of
-     that object, then checked visually on an enlarged contact sheet.
-     ---------------------------------------------------------------- */
   const SPRITES = {
     shelfA:     [80, 224, 33, 32],
     shelfB:     [80, 256, 33, 32],
@@ -64,9 +28,9 @@ const InteriorsArt = (function () {
     rugBlue:    [212, 178, 40, 60],
     windowRed:  [115, 391, 25, 20],
     windowGrey: [147, 391, 25, 20],
-    studyDesk:  [121, 618, 28, 22],     // desk with an open book: the scouts'
-    deskWood:   [52, 885, 25, 21],      // plain drawer desk: scribe and warden
-    blackboard: [210, 647, 28, 23],     // the planner works at this
+    studyDesk:  [121, 618, 28, 22],
+    deskWood:   [52, 885, 25, 21],
+    blackboard: [210, 647, 28, 23],
     chart:      [208, 616, 31, 21],
     worldMap:   [160, 1065, 32, 19],
     globe:      [209, 577, 13, 21],
@@ -76,50 +40,43 @@ const InteriorsArt = (function () {
     lampCream:  [176, 886, 17, 26],
     lampBlue:   [208, 904, 15, 33],
 
-    // The break corner (Phase 3). Boxes found the same way as the rest:
-    // by scanning the sheet for each object's opaque pixels.
-    //
-    // The kitchenette is built the way every pixel-art cafe is built: a
-    // COUNTER RUN against the wall, the machine standing ON it rather than
-    // on the floor, a mug left beside it, a shelf above, and a fridge at
-    // the end of the run. Two objects adrift in open floor read as two
-    // objects; a counter against a wall reads as a kitchen.
-    counterUnit: [64, 161, 16, 37],     // one counter segment
-    coffeeMaker: [48, 138, 16, 22],     // the machine itself
-    coffeeMug:   [196, 227, 9, 10],     // a cup someone left out
-    wallShelf:   [5, 216, 22, 7],       // narrow shelf, hangs on the wall
+
+
+
+
+
+
+
+
+    counterUnit: [64, 161, 16, 37],
+    coffeeMaker: [48, 138, 16, 22],
+    coffeeMug:   [196, 227, 9, 10],
+    wallShelf:   [5, 216, 22, 7],
     fridge:      [3, 92, 42, 54],
-    breakTable:  [13, 161, 38, 37],     // square table, seen from above
+    breakTable:  [13, 161, 38, 37],
     chairLeft:   [194, 993, 12, 22],
     chairRight:  [210, 993, 12, 22]
   };
 
-  // Into Room_Builder_free_16x16.png. Column 1 of the dark-wood wall is the
-  // seamless middle piece; columns 0 and 2 carry corner trims and showed a
-  // visible seam every 16px when tiled.
+
+
+
   const ROOM = {
     wall:  [16, 208, 16, 32],
-    floor: [176, 208, 16, 16]           // herringbone parquet
+    floor: [176, 208, 16, 16]
   };
 
-  /* ----------------------------------------------------------------
-     Character sheet layout, per the pack (all frames 16x32, facing order
-     right / up / left / down):
-       *_idle_anim : 24 frames, 6 per direction   -> front = 18..23, back = 6..11
-       *_phone     :  9 frames, facing the camera -> phone in hand = 3..8
-       *_idle      :  4 frames, one per direction -> front still = 3
-       *_run       : 24 frames, 6 per direction   -> the walk cycles
-     ---------------------------------------------------------------- */
+
   const FW = 16;
   const FH = 32;
 
   let images = {};
   let ready = false;
   let loading = null;
-  const sheetCache = {};       // agentId -> composited, recoloured canvas
+  const sheetCache = {};
   const portraitCache = {};
 
-  /* ============================================================ loading */
+
 
   function loadImage(url) {
     return new Promise(function (resolve, reject) {
@@ -161,7 +118,7 @@ const InteriorsArt = (function () {
     return loading;
   }
 
-  /* ============================================================ helpers */
+
 
   function canvas(w, h) {
     const c = document.createElement("canvas");
@@ -262,7 +219,7 @@ const InteriorsArt = (function () {
     return s.c;
   }
 
-  /* ============================================================ public: DOM */
+
 
   /** Head-and-shoulders portrait for the party panel, as a data URL. */
   function portrait(agentId, scale) {
@@ -271,11 +228,11 @@ const InteriorsArt = (function () {
     if (portraitCache[key]) return portraitCache[key];
     const sheet = sheetFor(agentId);
     const s = canvas(16 * z, 16 * z);
-    // Front-facing still (row 2, frame 3), cropped from y=11. A head-only crop
-    // (the first attempt) made all five scouts identical in the party panel:
-    // they are the same character from the neck up, and the shirt colour is
-    // the only thing telling them apart. This crop trims a little hair and
-    // keeps the shirt.
+
+
+
+
+
     s.x.drawImage(sheet, 3 * FW, 2 * FH + 11, 16, 16, 0, 0, 16 * z, 16 * z);
     portraitCache[key] = s.c.toDataURL();
     return portraitCache[key];
@@ -286,31 +243,31 @@ const InteriorsArt = (function () {
     return ACCENT[agentId] || "#7d8099";
   }
 
-  /* ============================================================ the theme */
+
 
   const theme = {
     name: "interiors",
 
-    // Emote bubble anchor, relative to the feet: just right of the head.
+
     emote: { dx: 11, dy: -20 },
 
-    // The pack has no front-facing typing frames, so "writing" is the idle
-    // loop played fast plus a 1px busy-bounce (game.js adds the bounce).
-    // With the desk hiding the hands, a bobbing head and shoulders is the
-    // classic pixel-game shorthand for working hard.
+
+
+
+
     typingBob: true,
 
-    // The failed pose in this pack is just the still frame, so a grey-red
-    // tint carries the "something went wrong" signal.
+
+
     tintOnFail: 0xc88c8c,
 
     register: function (scene) {
-      PixelArt.register(scene);    // emotes + bitmap font are shared by both themes
+      PixelArt.register(scene);
       Object.keys(SPRITES).forEach(function (k) {
         if (!scene.textures.exists("mi-" + k)) {
           let cv = crop(images.interiors, SPRITES[k]);
-          // Rugs are floor too: quieted a little, less than the floor itself,
-          // so they still read as accents.
+
+
           if (k === "rugRed" || k === "rugBlue") cv = tone(cv, 0.25, 0.1);
           scene.textures.addCanvas("mi-" + k, cv);
         }
@@ -332,7 +289,7 @@ const InteriorsArt = (function () {
     buildRoom: function (s) {
       const W = GuildWorld.W, H = GuildWorld.H, FLOOR = GuildWorld.FLOOR_TOP;
 
-      // Ceiling band, wall, floor.
+
       s.add.rectangle(0, 0, W, 16, 0x2a2536).setOrigin(0, 0).setDepth(0);
       for (let x = 0; x < W; x += 16) {
         s.add.image(x, 16, "mi-wall").setOrigin(0, 0).setDepth(0);
@@ -342,8 +299,8 @@ const InteriorsArt = (function () {
           s.add.image(x, y, "mi-floor").setOrigin(0, 0).setDepth(0);
         }
       }
-      // A faint shadow where wall meets floor, so the floor sits under it
-      // instead of butting against it.
+
+
       s.add.rectangle(0, FLOOR, W, 3, 0x000000, 0.18).setOrigin(0, 0).setDepth(1);
 
       GuildWorld.WALL.forEach(function (d) {
@@ -351,23 +308,23 @@ const InteriorsArt = (function () {
       });
 
       GuildWorld.FURNITURE.forEach(function (f) {
-        // The archive case is not ours to draw: game.js builds it from
-        // pixel-art.js (no sheet can hold "a bookcase with this many books
-        // in it") and keeps it interactive and repaintable.
+
+
+
         if (f.id === "archiveCase") return;
         const key = GuildWorld.isCustomArt(f.id) ? PixelArt.KEYS[f.id] : "mi-" + f.id;
         const im = s.add.image(f.x, f.y, key).setOrigin(f.ox, f.oy);
-        // Depth is the object's bottom edge -- the same rule the agents use,
-        // so a walking agent passes in front of or behind anything correctly.
+
+
         // Rugs are the exception: they lie ON the floor and must never sort
-        // in front of the feet standing on them.
+
         const bottom = f.y + im.height * (1 - f.oy);
         im.setDepth(f.depth !== undefined ? f.depth
           : (/^rug/.test(f.id) ? 1 : bottom));
       });
 
-      // Two pools of lamplight: one over the planning corner, one over the
-      // front band, so the room is not evenly lit at every point.
+
+
       [[54, 92], [280, 236]].forEach(function (p) {
         const g = s.add.graphics().setDepth(2);
         g.fillStyle(0xefcf83, 0.06);
@@ -398,7 +355,7 @@ const InteriorsArt = (function () {
         for (let i = a; i <= b; i++) out.push({ key: texKey, frame: prefix + i });
         return out;
       };
-      // Both the idle_anim and run sheets run right / up / left / down, six
+
       // frames each, so the direction blocks line up between the two.
       [
         ["idle-right", range("a", 0, 5), 6, -1],
@@ -409,9 +366,9 @@ const InteriorsArt = (function () {
         ["walk-up",    range("r", 6, 11), 10, -1],
         ["walk-left",  range("r", 12, 17), 10, -1],
         ["walk-down",  range("r", 18, 23), 10, -1],
-        ["read", range("p", 3, 8), 6, -1],       // head down over a device
-        ["type", range("a", 18, 23), 12, -1],    // fast idle + busy-bounce
-        ["cheer", range("a", 18, 23), 12, -1],   // quick idle + hop tween
+        ["read", range("p", 3, 8), 6, -1],
+        ["type", range("a", 18, 23), 12, -1],
+        ["cheer", range("a", 18, 23), 12, -1],
         ["sad", [{ key: texKey, frame: "s3" }], 1, 0]
       ].forEach(function (d) {
         const k = texKey + "-" + d[0];
@@ -422,12 +379,12 @@ const InteriorsArt = (function () {
 
       const sprite = s.add.sprite(x, feetY, texKey, "a18").setOrigin(0.5, 1).setDepth(feetY);
 
-      // Nameplate just below the feet. It follows the agent around, so it
-      // cannot live under a desk any more -- and under the feet is also the
-      // one place it never covers the face or the emote.
+
+
+
       const plateKeys = PixelArt.registerNameplate(s, agentId, plateText, accent(agentId));
-      // Depth 900: a nameplate is a label, not furniture. Sorted by the
-      // feet it went behind the very desk its owner stands at.
+
+
       const plate = s.add.image(x, feetY + 2, plateKeys.normal).setOrigin(0.5, 0)
         .setDepth(900);
 
@@ -437,7 +394,7 @@ const InteriorsArt = (function () {
         plate: plate,
         plateKeys: plateKeys,
         texKey: texKey,
-        // Local to the 16x32 frame: the whole body plus the nameplate below.
+
         hitArea: [-8, 0, 32, 46]
       };
     }
@@ -449,7 +406,7 @@ const InteriorsArt = (function () {
     portrait: portrait,
     accent: accent,
     theme: theme,
-    // exposed for tests
+
     SPRITES: SPRITES,
     ROOM: ROOM
   };

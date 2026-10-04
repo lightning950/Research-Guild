@@ -1,119 +1,65 @@
-/* =========================================================================
-   world.js -- the map: what stands where, where agents may walk, and how
-   they get from one place to another.
-
-   WHY THIS FILE EXISTS SEPARATELY FROM THE THEMES
-
-   Before Phase 2 each theme owned its own room: interiors-art.js placed
-   LimeZu furniture, pixel-art.js placed generated furniture, and the two
-   agreed only by accident. Once agents WALK, the furniture is no longer
-   decoration -- it is collision, and a shelf that exists in one theme and
-   not the other means a path that works in one theme and wedges an agent
-   into a bookcase in the other.
-
-   So the floorplan lives here, once:
-     - FURNITURE  -- every floor-standing object, with the footprint it
-                     blocks. Themes read this list and draw their own art
-                     for each entry; they never invent positions.
-     - WALL       -- decoration hung on the back wall. Never blocks.
-     - ZONES      -- named standing spots, each with the direction the agent
-                     faces once it arrives.
-     - path()     -- A* over the tile grid, returned as pixel waypoints.
-
-   THE GRID IS 16px, THE ROOM IS 480x270 (30 x 17 tiles).
-   Rows 0..2 are ceiling and wall; the floor starts at row 3. Feet are
-   clamped to y<=264 so nobody's shoes hang off the bottom edge.
-
-   ZONE TILES ARE ALWAYS WALKABLE, even when furniture covers them. An agent
-   stands BEHIND its desk: the desk is drawn in front of the body, so the
-   desk's own rect overlaps the tile the agent occupies. Rather than hand-
-   tune every footprint around that, buildGrid() clears every zone tile at
-   the end. That also guarantees a zone can never become unreachable by a
-   later furniture tweak -- and the test suite checks exactly that.
-   ========================================================================= */
-
 const GuildWorld = (function () {
   "use strict";
 
   const W = 480;
   const H = 270;
   const TILE = 16;
-  const COLS = W / TILE;              // 30
-  const ROWS = Math.ceil(H / TILE);   // 17
-  const FLOOR_TOP = 48;               // ceiling + wall band above this
-  const FLOOR_ROW = FLOOR_TOP / TILE; // 3
-  const FEET_MAX = 264;               // lowest a pair of feet may stand
+  const COLS = W / TILE;
+  const ROWS = Math.ceil(H / TILE);
+  const FLOOR_TOP = 48;
+  const FLOOR_ROW = FLOOR_TOP / TILE;
+  const FEET_MAX = 264;
 
-  /* ----------------------------------------------------------------
-     WALL DECORATION -- drawn between y=16 and y=48, never blocks.
-     The blackboard is hard left because the planner works at it and the
-     planning zone is the top-left corner of the hall.
-     ---------------------------------------------------------------- */
+
   const WALL = [
     { id: "blackboard", x: 40,  y: 19 },
     { id: "worldMap",   x: 150, y: 24 },
     { id: "windowRed",  x: 200, y: 22 },
     { id: "chart",      x: 250, y: 22 },
-    { id: "windowGrey", x: 100, y: 22 },   // moved: the kitchenette has the
-    { id: "wallShelf",  x: 298, y: 32 }    // right-hand wall now
+    { id: "windowGrey", x: 100, y: 22 },
+    { id: "wallShelf",  x: 298, y: 32 }
   ];
 
-  /* ----------------------------------------------------------------
-     FURNITURE -- floor-standing objects.
-
-       x, y, ox, oy : where the theme draws it (ox/oy are the sprite origin)
-       block        : [x, y, w, h] footprint that blocks walking, or null
-       depth        : optional sort override. Depth is normally an object's
-                      bottom edge, which is right for things standing on the
-                      floor and wrong for things standing on OTHER THINGS:
-                      a mug on a counter has its bottom higher up the screen
-                      than the counter's front face, so the counter was being
-                      drawn over the top of it.
-
-     A desk's block is only its LOWER half. The upper half is where the
-     agent stands, and blocking it would mean an agent permanently inside
-     an obstacle. Depth sorting puts the desk in front of the body, so the
-     two overlap on purpose.
-     ---------------------------------------------------------------- */
+  /* Furniture footprints use the lower half of desks so agents can stand at them. */
   const FURNITURE = [
-    // --- the planner's cabin (top left) ---
-    //     A desk with a computer on it. The planner used to stand facing a
-    //     blackboard for the whole run, visibly doing nothing.
+
+
+
     { id: "rugRed",    x: 54,  y: 92,  ox: 0.5, oy: 0.5, block: null },
     { id: "deskWood",  x: 54,  y: 96,  ox: 0.5, oy: 0,   block: [41, 108, 26, 10] },
-    // Keep the screen to the planner's right so it shares the desktop with
-    // the mug instead of covering the middle of the desk.
+
+
     { id: "monitor",   x: 61,  y: 105, ox: 0.5, oy: 1,   block: null, depth: 118 },
     { id: "coffeeMug", x: 46,  y: 104, ox: 0.5, oy: 1,   block: null, depth: 119 },
     { id: "globe",     x: 104, y: 86,  ox: 0.5, oy: 1,   block: [98, 78, 13, 10] },
     { id: "shelfA",    x: 2,   y: 26,  ox: 0,   oy: 0,   block: [2, 48, 33, 10] },
     { id: "lampCream", x: 128, y: 88,  ox: 0.5, oy: 1,   block: [121, 80, 15, 10] },
 
-    // --- the kitchenette, against the back wall ---
-    //     The counter runs along the wall, the machine stands on it, and
-    //     the fridge closes the run off -- which also screens the archive
-    //     corner, the job the two potted plants used to do badly.
+
+
+
+
     { id: "counterUnit", x: 296, y: 46, ox: 0,   oy: 0, block: [296, 72, 16, 12] },
     { id: "counterUnit", x: 312, y: 46, ox: 0,   oy: 0, block: [312, 72, 16, 12] },
     { id: "coffeeMaker", x: 306, y: 58, ox: 0.5, oy: 1, block: null, depth: 84 },
     { id: "coffeeMug",   x: 322, y: 58, ox: 0.5, oy: 1, block: null, depth: 85 },
     { id: "fridge",      x: 336, y: 48, ox: 0,   oy: 0, block: [336, 88, 42, 14] },
 
-    // --- the archive (top right). One custom-drawn case, not a pair of
-    //     stock shelves: its shelves carry a spine per saved report, so
-    //     this is the one piece of furniture whose art is data. The zone
-    //     in front of it is where the scribe files, and where a visitor
-    //     stands to read the spines. ---
+
+
+
+
+
     { id: "archiveCase", x: 396, y: 20, ox: 0, oy: 0, block: [396, 56, 50, 12] },
 
-    // --- scout desks (the middle row) ---
+
     { id: "studyDesk", x: 96,  y: 144, ox: 0.5, oy: 0,   block: [82, 160, 28, 8] },
     { id: "studyDesk", x: 154, y: 144, ox: 0.5, oy: 0,   block: [140, 160, 28, 8] },
     { id: "studyDesk", x: 212, y: 144, ox: 0.5, oy: 0,   block: [198, 160, 28, 8] },
     { id: "studyDesk", x: 270, y: 144, ox: 0.5, oy: 0,   block: [256, 160, 28, 8] },
     { id: "studyDesk", x: 328, y: 144, ox: 0.5, oy: 0,   block: [314, 160, 28, 8] },
 
-    // --- the front band: scribe writes, warden checks ---
+
     { id: "deskWood",  x: 228, y: 230, ox: 0.5, oy: 0,   block: [215, 242, 26, 12] },
     { id: "monitor",   x: 234, y: 236, ox: 0.5, oy: 1,   block: null, depth: 252 },
     { id: "deskWood",  x: 332, y: 230, ox: 0.5, oy: 0,   block: [319, 242, 26, 12] },
@@ -121,67 +67,53 @@ const GuildWorld = (function () {
     { id: "rugBlue",   x: 286, y: 206, ox: 0.5, oy: 0.5, block: null },
     { id: "lampBlue",  x: 284, y: 250, ox: 0.5, oy: 1,   block: [277, 240, 15, 12] },
 
-    // --- the break corner (bottom right): where off-duty agents go.
-    //     The routine in game.js is only believable if the room actually
-    //     has the places it sends people to -- a coffee machine to stand
-    //     at and open floor for the standing discussion area.
-    // --- corners ---
+
+
+
+
+
     { id: "palm",      x: 4,   y: 266, ox: 0,   oy: 1,   block: [4, 250, 23, 14] },
     { id: "tree",      x: 452, y: 266, ox: 0,   oy: 1,   block: [452, 252, 18, 12] }
   ];
 
-  /* Pieces drawn in code (pixel-art.js) rather than cropped from the art
-     pack, because the free pack has nothing that will do: a bookcase whose
-     contents are data, and a computer (the office set is paid-only). Both
-     themes render these from the same drawing. */
+
   const CUSTOM_ART = ["archiveCase", "monitor"];
 
-  /* ----------------------------------------------------------------
-     ZONES -- named standing spots. `face` is the direction the agent turns
-     once it arrives, which decides the idle frame it settles into.
 
-     Slot groups (table*, pace*) are claimed one agent at a time through
-     claim(); the fixed zones belong to one agent for the whole run.
-     ---------------------------------------------------------------- */
   const ZONES = {
-    board:   { x: 54,  y: 102, face: "down" },   // planner's desk
-    archive: { x: 420, y: 104, face: "up" },     // in front of the shelves
-    gate:    { x: 180, y: 54,  face: "down" },   // where agents arrive
+    board:   { x: 54,  y: 102, face: "down" },
+    archive: { x: 420, y: 104, face: "up" },
+    gate:    { x: 180, y: 54,  face: "down" },
     scribe:  { x: 228, y: 236, face: "down" },
     warden:  { x: 332, y: 236, face: "down" },
 
-    // Where a scout stands to hand its findings to the scribe: 32px clear,
-    // or the two nameplates run into each other. (The warden used to have a
-    // matching spot on the other side, but it verifies at its own desk and
-    // computer now, so it never walks over.)
+
+
+
+
     deliver: { x: 196, y: 236, face: "right" },
 
-    // Where the planner stands when it comes down to see how the scouts are
-    // getting on: in front of the desk row, looking up at it.
+
+
     inspect0: { x: 154, y: 178, face: "up" },
     inspect1: { x: 270, y: 178, face: "up" },
 
-    // Scout desks, in the same order as researcher-0..4. Scouts stand
-    // behind their desks and face down toward the work surface.
+
+
     desk0: { x: 96,  y: 150, face: "down" },
     desk1: { x: 154, y: 150, face: "down" },
     desk2: { x: 212, y: 150, face: "down" },
     desk3: { x: 270, y: 150, face: "down" },
     desk4: { x: 328, y: 150, face: "down" },
 
-    /* ---- off-duty spots ----
-       Agents do not wander at random: each one works through a fixed rota
-       of things to do, and every one of those things happens HERE, at a
-       named spot it has to walk to. Each spot holds exactly one agent
-       (claim() enforces it), which is what keeps two of them from standing
-       inside each other. */
-    coffee: { x: 312, y: 100, face: "up" },     // at the counter
-    shelf:  { x: 18,  y: 70,  face: "up" },     // browsing the bookshelf
-    chatA:  { x: 296, y: 190, face: "right" },  // two agents, facing each
-    chatB:  { x: 328, y: 190, face: "left" },   // other, mid-conversation
 
-    // Five standing discussion spots around the break table. Each face points
-    // toward the table and the other scouts.
+    coffee: { x: 312, y: 100, face: "up" },
+    shelf:  { x: 18,  y: 70,  face: "up" },
+    chatA:  { x: 296, y: 190, face: "right" },
+    chatB:  { x: 328, y: 190, face: "left" },
+
+
+
     table0: { x: 384, y: 148, face: "down" },
     table1: { x: 408, y: 148, face: "down" },
     table2: { x: 352, y: 190, face: "right" },
@@ -189,21 +121,20 @@ const GuildWorld = (function () {
     table4: { x: 396, y: 242, face: "up" }
   };
 
-  /* Off-duty groups. A group with one spot still goes through claim(), so
-     a second agent wanting coffee waits its turn instead of sharing it. */
+
   const GROUPS = {
     coffee: ["coffee"],
-    // Only spots that actually face shelves. There used to be a second one
-    // at x=50, which is in front of the BLACKBOARD -- agents "browsing the
-    // books" stood at the planning board reading the wall.
+
+
+
     browse: ["shelf", "archive"],
     chat:   ["chatA", "chatB"],
     table:  ["table0", "table1", "table2", "table3", "table4"],
-    // The planner's rounds: two places to stand and watch the desk row.
+
     inspect: ["inspect0", "inspect1"]
   };
 
-  /* ============================================================ the grid */
+
 
   let grid = null;   // grid[row][col] === true when walkable
 
@@ -222,7 +153,7 @@ const GuildWorld = (function () {
         for (let c = Math.max(0, c0); c <= Math.min(COLS - 1, c1); c++) g[r][c] = false;
       }
     });
-    // Zone tiles win over furniture: see the header note.
+
     Object.keys(ZONES).forEach(function (k) {
       const z = ZONES[k];
       g[Math.floor(z.y / TILE)][Math.floor(z.x / TILE)] = true;
@@ -267,13 +198,7 @@ const GuildWorld = (function () {
     return t;
   }
 
-  /* ================================================================ A*
 
-     Four-neighbour, Manhattan heuristic, because the walk cycles are
-     four-directional: a diagonal step would need art that does not exist
-     and would read as sliding. Paths therefore come out L-shaped, which is
-     how characters move in the games this room is imitating anyway.
-     ================================================================ */
 
   /**
    * Join a start pixel, a run of tile centres and an exact destination into
@@ -324,21 +249,21 @@ const GuildWorld = (function () {
 
     const tiles = search(start, goal, key, avoid) || search(start, goal, key, null);
     if (!tiles) {
-      // Unreachable even with the room to itself (should not happen -- the
-      // suite checks every zone pair). Walking straight there beats standing
-      // still and looking broken.
+
+
+
       return [{ x: toX, y: Math.min(toY, FEET_MAX) }];
     }
 
-    // Collapse runs in the same direction: one waypoint per corner, so the
-    // mover changes facing only where the path actually turns.
+
+
     const out = [];
     for (let i = 0; i < tiles.length; i++) {
       const prev = tiles[i - 1] || start;
       const next = tiles[i + 1];
       if (next && (next.col - tiles[i].col) === (tiles[i].col - prev.col) &&
                   (next.row - tiles[i].row) === (tiles[i].row - prev.row)) {
-        continue;                       // straight through: not a waypoint
+        continue;
       }
       out.push(centreOf(tiles[i].col, tiles[i].row));
     }
@@ -364,8 +289,8 @@ const GuildWorld = (function () {
     let found = false;
 
     while (open.length) {
-      // Linear scan for the smallest f. The grid is 510 tiles; a heap would
-      // be more code than the search it speeds up.
+
+
       let bi = 0;
       for (let i = 1; i < open.length; i++) if (open[i].f < open[bi].f) bi = i;
       const cur = open.splice(bi, 1)[0];
@@ -399,18 +324,14 @@ const GuildWorld = (function () {
     return tiles;
   }
 
-  /* =========================================================== claiming
 
-     Slot groups hand out one spot per agent. Without this, five scouts all
-     pick table0 and stand inside each other.
-     ======================================================================= */
 
-  const held = {};      // agentId -> zone name
+  const held = {};
 
   function claim(agentId, group, strict) {
     const names = GROUPS[group];
     if (!names) return null;
-    if (names.indexOf(held[agentId]) !== -1) return held[agentId];   // keep it
+    if (names.indexOf(held[agentId]) !== -1) return held[agentId];
     const taken = {};
     Object.keys(held).forEach(function (a) {
       if (a !== agentId) taken[held[a]] = true;
@@ -419,10 +340,10 @@ const GuildWorld = (function () {
     for (let i = 0; i < names.length && !pick; i++) {
       if (!taken[names[i]]) pick = names[i];
     }
-    // Work slots share rather than fail: a sixth scout standing at the end
-    // of the bench is better than one standing nowhere. Off-duty activities
+
+
     // pass strict, because two agents in one chair is exactly the collision
-    // the routine exists to avoid -- they pick something else to do instead.
+
     if (!pick) {
       if (strict) return null;
       pick = names[names.length - 1];

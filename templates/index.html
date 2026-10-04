@@ -6,15 +6,10 @@
 <meta name="theme-color" content="#1a1118">
 <title>Research Guild</title>
 
-<!-- Favicon as an inline SVG: a pixel-art book, drawn on an 8x8 grid.
-     Inline so there is no extra file to serve (and no more favicon 404). -->
+
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%231a1118'/%3E%3Crect x='1' y='2' width='6' height='4' fill='%23c9963f'/%3E%3Crect x='1' y='2' width='3' height='3' fill='%23f6ecd0'/%3E%3Crect x='4' y='2' width='3' height='3' fill='%23e4d4ab'/%3E%3Crect x='4' y='2' width='0.5' height='4' fill='%235a3620'/%3E%3C/svg%3E">
 
-<!-- Two fonts, two jobs.
-     Press Start 2P = the game chrome (titles, buttons). Gorgeous in small
-     doses, unreadable in paragraphs.
-     VT323 = dialogue and log: still period-correct, readable in bulk.
-     The report body deliberately uses neither -- see .doc in app.css. -->
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
@@ -25,20 +20,20 @@
 
 <div class="cabinet">
 
-  <!-- ===================== left: the console ===================== -->
+
   <div class="console">
 
     <div class="console__top">
       <span class="led" id="led" title="Lit while a quest is running"></span>
       <span class="console__brand">RESEARCH GUILD</span>
-      <!-- doubles as the elapsed-time readout while a run is live -->
+
       <span class="console__model" id="console-model">MK-IV</span>
       <button type="button" class="chip-btn" id="sound-btn" aria-pressed="true"
               title="Toggle sound effects">SND ON</button>
       <button type="button" class="chip-btn" id="menu-btn" title="Back to the title menu">MENU</button>
     </div>
 
-    <!-- The screen bezel. Everything inside is "on the display". -->
+
     <div class="screen">
       <div class="screen__glass">
 
@@ -49,11 +44,7 @@
             <p>Loading the guild hall...</p>
           </div>
 
-          <!-- ============ TITLE SCREEN ============
-               Sits OVER the canvas with a translucent backdrop, so the idle
-               guild hall shows through behind the menu -- the room itself is
-               the attract screen. It never blocks the quest input below: typing
-               a topic and pressing START dismisses it. -->
+
           <div id="title" class="title" role="dialog" aria-label="Title menu">
             <div class="title__inner">
               <h1 class="title__logo">
@@ -62,8 +53,7 @@
               </h1>
               <p class="title__tag">No subject too strange. No trail too cold.  </p>
 
-              <!-- Main menu. Arrow keys move the cursor, Enter selects,
-                   mouse and touch work as normal buttons. -->
+
               <div id="title-menu" class="menu" role="menu">
                 <button type="button" class="menu__item is-active" role="menuitem" id="title-start" data-action="new">NEW QUEST</button>
                 <button type="button" class="menu__item" role="menuitem" data-action="archive">ARCHIVE <span class="menu__count" id="archive-count"></span></button>
@@ -76,7 +66,7 @@
             </div>
           </div>
 
-          <!-- ============ FAILURE BANNER ============ -->
+
           <div id="banner" class="banner" role="alertdialog" aria-labelledby="banner-title" hidden>
             <div class="banner__box">
               <h2 class="banner__title" id="banner-title">QUEST FAILED</h2>
@@ -87,8 +77,7 @@
           </div>
         </div>
 
-        <!-- RPG dialogue box: one shared box with the speaker's name, instead
-             of unreadable tiny bubbles over each sprite. See game.js. -->
+
         <div class="dialogue" id="dialogue" aria-live="polite">
           <div class="dialogue__name" id="dialogue-name">GUILD</div>
           <p class="dialogue__text" id="dialogue-text">Welcome, Archivist. Name your subject, and let the guild begin the search.</p>
@@ -98,7 +87,7 @@
       </div>
     </div>
 
-    <!-- Physical-feeling controls below the screen. -->
+
     <form class="controls questbar" id="topic-form" autocomplete="off">
       <label class="controls__label" for="topic-input">QUEST</label>
       <input id="topic-input" type="text" maxlength="200" required
@@ -118,15 +107,10 @@
 
   </div>
 
-  <!-- ===================== right: party + log =====================
-       A column of its own, not an overlay: this room keeps its furniture
-       around the edges, so a panel floating over the hall would sit on top
-       of the archive shelves and the break corner. -->
+
   <aside class="side">
 
-    <!-- The finished report lives in the records column, not across the
-         bottom of the hall: down there it was a second full-width row of
-         chrome, and every pixel it took came straight off the room. -->
+
     <section class="panel ready" id="report-chip" hidden>
       <h2 class="panel__title ready__flag">REPORT READY</h2>
       <p class="ready__topic" id="ready-topic"></p>
@@ -157,7 +141,7 @@
 
 </div>
 
-<!-- ===================== results overlay ===================== -->
+
 <div id="results" class="overlay" role="dialog" aria-modal="true" aria-labelledby="result-title" hidden>
   <div class="overlay__inner">
 
@@ -177,13 +161,13 @@
       </div>
     </div>
 
-    <!-- The rendered report. .doc opts OUT of the pixel fonts on purpose. -->
+
     <article id="report" class="doc"></article>
 
   </div>
 </div>
 
-<!-- ===================== archive overlay ===================== -->
+
 <div id="archive" class="overlay" role="dialog" aria-modal="true" aria-labelledby="archive-title" hidden>
   <div class="overlay__inner overlay__inner--narrow">
     <div class="sheet-head">
@@ -195,10 +179,8 @@
   </div>
 </div>
 
-<!-- ===================== how it works ===================== -->
-<!-- A sheet, not a panel inside the game screen: on a phone the screen is
-     ~290px tall, and four role descriptions pushed the BACK button out of
-     sight with no hint that the panel scrolled. -->
+
+
 <div id="how" class="overlay" role="dialog" aria-modal="true" aria-labelledby="how-title" hidden>
   <div class="overlay__inner overlay__inner--narrow">
     <div class="sheet-head">
@@ -210,7 +192,7 @@
   </div>
 </div>
 
-<!-- ===================== agent detail card ===================== -->
+
 <div id="agent-card" class="overlay overlay--card" role="dialog" aria-modal="true" aria-labelledby="card-name" hidden>
   <div class="card">
     <div class="card__head">
@@ -242,11 +224,9 @@
 
 <script src="{{ url_for('static', filename='js/sound.js') }}"></script>
 <script src="{{ url_for('static', filename='js/pixel-art.js') }}"></script>
-<!-- The floorplan: furniture, walkable tiles and pathfinding. Both themes
-     read it, so it must load before either of them. -->
+
 <script src="{{ url_for('static', filename='js/world.js') }}"></script>
-<!-- Modern Interiors theme. If its PNGs are missing the game falls back to
-     pixel-art.js automatically; see static/assets/modern-interiors/ABOUT.md -->
+
 <script src="{{ url_for('static', filename='js/interiors-art.js') }}"></script>
 <script src="{{ url_for('static', filename='js/game.js') }}"></script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>

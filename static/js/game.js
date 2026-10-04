@@ -1,103 +1,49 @@
-/* =========================================================================
-   game.js -- the Phaser scene: a guild hall where the agents work, and,
-   since Phase 2, walk.
-
-   DESIGN DECISIONS WORTH KNOWING
-
-   1) LOGICAL RESOLUTION IS 480x270, SCALED UP.
-      The scene is authored at 480x270 (16:9) and Phaser's FIT scale mode
-      blows it up to whatever the container is. That is why the art can be
-      16x16 tiles and still fill a browser window: we never draw big, we
-      draw small and magnify. `pixelArt: true` turns off texture smoothing
-      so magnifying stays crisp instead of going soft.
-
-   2) THE ROOM IS A MAP, NOT A BACKDROP.
-      world.js owns the floorplan: furniture footprints, named standing
-      zones and A* over a 16px grid. This file owns BEHAVIOUR -- who walks
-      where, when, and what they play once they get there. A theme owns only
-      what it all looks like.
-
-   3) POSITION IS INFORMATION.
-      An agent's location answers "what is it doing" before you read a word:
-      a scout at the source table is fetching pages, the same scout at its
-      desk is writing them up, the warden at the scribe's desk is checking
-      the draft. That is why movement is driven by pipeline events and never
-      by a timer -- with one exception, the idle filler in (4).
-
-   4) IDLE FILLER IS CLEARLY IDLE.
-      A deep run can sit on one model call for half a minute. Rather than
-      freeze the hall, an agent whose state is `idle` wanders to a pacing
-      spot and back. It is deliberately aimless: pacing must never be
-      mistaken for progress. Any real event cancels it instantly.
-
-   5) NO SPEECH BUBBLES WITH TEXT IN THEM.
-      At this size a bubble holding "Reading en.wikipedia.org" would cover
-      a quarter of the room. Sprites carry a wordless ICON emote; the full
-      sentence goes to the dialogue box below the screen.
-
-   6) THE ART IS A SWAPPABLE "THEME".
-        - InteriorsArt.theme  (interiors-art.js) -- LimeZu's Modern Interiors
-        - ProceduralTheme     (below)            -- art generated in code
-      boot() uses Modern Interiors when its files loaded, and falls back to
-      the generated art otherwise. A theme provides: register(scene),
-      buildRoom(scene), emote {dx, dy}, createVisuals(...) and, optionally,
-      animFor(), tintOnFail and typingBob. Both themes must register the
-      same animation keys: idle-<dir>, walk-<dir>, read, type, cheer, sad.
-   ========================================================================= */
-
 const GuildGame = (function () {
   "use strict";
 
-  const W = GuildWorld.W;      // 480
-  const H = GuildWorld.H;      // 270
+  const W = GuildWorld.W;
+  const H = GuildWorld.H;
   const TILE = GuildWorld.TILE;
 
-  // Logical pixels per second. At 52 a scout crosses the hall in about
-  // eight seconds: fast enough not to hold up an event, slow enough that
-  // the eye can follow who moved.
+
+
+
   const WALK_SPEED = 52;
 
-  // Nameplates are LABELS, not objects in the room, so they sort above all
-  // furniture and below the emotes. Sorting them by the feet like a body
-  // meant the desk an agent stands behind was drawn over its own nameplate,
-  // and no scout at a desk ever showed a name.
+
+
+
+
   const PLATE_DEPTH = 900;
 
-  // How long an agent stands at its post before going off to do something
-  // else. Jittered, so the whole hall does not stand up at the same moment.
+
+
   const IDLE_BEFORE_ROUTINE = [4500, 9000];
 
   let game = null;
-  let scene = null;           // set once the scene has booted
-  let theme = null;           // chosen in boot()
+  let scene = null;
+  let theme = null;
   let ready = false;
-  const stations = {};        // agentId -> station object
-  let pendingStates = {};     // states that arrived before the scene booted
-  let clickHandler = null;    // set by app.js through onAgentClick()
-  let archiveHandler = null;  // set by app.js through onArchiveClick()
-  let archiveCase = null;     // the bookcase image, redrawn as reports land
+  const stations = {};
+  let pendingStates = {};
+  let clickHandler = null;
+  let archiveHandler = null;
+  let archiveCase = null;
   let archiveCount = 0;
-  let scrollSprite = null;    // the "report ready" scroll on the scribe's desk
+  let scrollSprite = null;
 
-  // Honour the OS-level "reduce motion" setting. Walking survives it --
-  // where an agent stands is information, not decoration -- but pacing,
-  // hops, shakes and bobs do not.
+
+
+
   const reducedMotion = !!(window.matchMedia &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
-  // The routine is the one thing in here that happens without an event,
-  // which makes it the one thing that turns a choreography test into a race.
-  // The test suite switches it off; nothing else touches it.
+
+
+
   let routineEnabled = !reducedMotion;
 
-  /* ----------------------------------------------------------------
-     STATE -> PRESENTATION TABLE
 
-     `anim` "stand" means "the directional idle for whichever way you are
-     facing", resolved in animKey(); the rest are literal animation keys.
-     `zone` is the standing spot the state implies, resolved per agent in
-     targetZone() -- null means "wherever you already are".
-     ---------------------------------------------------------------- */
   const PRESENTATION = {
     idle:      { anim: "stand", emote: null,     label: "idle" },
     thinking:  { anim: "read",  emote: "book",   label: "thinking" },
@@ -122,7 +68,7 @@ const GuildGame = (function () {
   /** Short nameplate text. Kept short: the bitmap font spends 4px a letter. */
   function shortName(agentId) {
     const m = /^researcher-(\d+)$/.exec(agentId);
-    if (m) return "SCOUT" + (Number(m[1]) + 1);   // no space: width is tight
+    if (m) return "SCOUT" + (Number(m[1]) + 1);
     if (agentId === "planner") return "PLANNER";
     if (agentId === "synthesizer") return "SCRIBE";
     if (agentId === "verifier") return "WARDEN";
@@ -133,47 +79,32 @@ const GuildGame = (function () {
     return range[0] + Math.random() * (range[1] - range[0]);
   }
 
-  /* ----------------------------------------------------------------
-     WHERE A STATE PUTS AN AGENT
 
-     The one place the choreography is written down. Everything else in
-     this file just carries it out.
-     ---------------------------------------------------------------- */
   function targetZone(agentId, state) {
-    // Everyone works at their own desk, whatever they are doing: the scouts
-    // search and write at theirs, the warden verifies at its own computer,
-    // the planner plans at its own. Work no longer moves anybody.
-    //
-    // Movement during a run is now only ever a DELIVERY or a VISIT -- a
-    // scout carrying findings to the scribe (handoff), the scribe fetching
-    // the outline (sectionFocus), the planner coming down to see how the
-    // scouts are getting on (inspectScouts) -- which is what made the
-    // walking mean something in the first place.
+
+
+
+
+
+
+
+
+
     return GuildWorld.homeZone(agentId);
   }
-
-  /* ================================================================
-     ProceduralTheme -- the generated art from pixel-art.js.
-     Used when the Modern Interiors files are not available.
-
-     It draws the SAME floorplan as the Interiors theme, from the same
-     world.js tables, with its own generated props standing in for LimeZu's.
-     Furniture is collision now, so the two themes cannot be allowed to
-     disagree about what is in the room.
-     ================================================================ */
 
   const ProceduralTheme = {
     name: "procedural",
 
-    // Emote beside the head, not above it -- above is where this theme's
-    // taller props sit, and the two were overlapping.
+
+
     emote: { dx: 12, dy: -16 },
 
     typingBob: true,
 
     // Which generated prop stands in for each world.js furniture id.
-    // Anything mapped to null is skipped: a flat rug cannot be drawn
-    // convincingly in this theme's flatter, front-on style.
+
+
     PROPS: {
       shelfA: "shelf", shelfB: "shelfAlt",
       studyDesk: "deskScreen", deskWood: "deskPlain",
@@ -194,7 +125,7 @@ const GuildGame = (function () {
       const K = PixelArt.KEYS;
       const FLOOR = GuildWorld.FLOOR_TOP;
 
-      // Floor: two alternating plank tiles so the tiling never lines up.
+
       for (let y = FLOOR; y < H; y += TILE) {
         for (let x = 0; x < W; x += TILE) {
           const alt = ((x / TILE) + (y / TILE)) % 3 === 0;
@@ -202,7 +133,7 @@ const GuildGame = (function () {
         }
       }
 
-      // Wall: plaster above, wainscot as the bottom band.
+
       for (let x = 0; x < W; x += TILE) {
         s.add.image(x, 0, K.wall).setOrigin(0, 0).setDepth(0);
         s.add.image(x, TILE, K.wall).setOrigin(0, 0).setDepth(0);
@@ -210,7 +141,7 @@ const GuildGame = (function () {
       }
 
       const draw = function (item, depthFloor) {
-        // buildArchive() owns the bookcase in both themes.
+
         if (item.id === "archiveCase") return;
         const key = GuildWorld.isCustomArt(item.id)
           ? item.id : ProceduralTheme.PROPS[item.id];
@@ -226,7 +157,7 @@ const GuildGame = (function () {
       GuildWorld.WALL.forEach(function (d) { draw(d, true); });
       GuildWorld.FURNITURE.forEach(function (f) { draw(f, false); });
 
-      // Two faint pools of lamplight, over the two working corners.
+
       [[54, 92], [280, 236]].forEach(function (p) {
         const g = s.add.graphics().setDepth(2);
         g.fillStyle(0xefcf83, 0.07);
@@ -240,8 +171,8 @@ const GuildGame = (function () {
       const texKey = PixelArt.registerCharacter(s, agentId, PixelArt.colorsFor(agentId));
       const f = function (name) { return { key: texKey, frame: name }; };
       [
-        // Standing still: the front view breathes, the other three are the
-        // neutral step of that direction's walk cycle.
+
+
         ["idle-down", [f("idle0"), f("idle1")], 2, -1],
         ["idle-up", [f("walkUp0")], 1, 0],
         ["idle-left", [f("walkLeft0")], 1, 0],
@@ -262,8 +193,8 @@ const GuildGame = (function () {
 
       const sprite = s.add.sprite(x, feetY, texKey, "idle0").setOrigin(0.5, 1).setDepth(feetY);
 
-      // Bitmap-font nameplate below the feet, where it cannot cover the face
-      // and can follow the agent around the room.
+
+
       const plateKeys = PixelArt.registerNameplate(s, agentId, plateText);
       const plate = s.add.image(x, feetY + 2, plateKeys.normal)
         .setOrigin(0.5, 0).setDepth(PLATE_DEPTH);
@@ -275,9 +206,7 @@ const GuildGame = (function () {
     }
   };
 
-  /* ================================================================
-     Scene
-     ================================================================ */
+
 
   const GuildScene = {
 
@@ -287,17 +216,17 @@ const GuildGame = (function () {
       scene = this;
       theme.register(this);
 
-      // Drop station records from any previous scene instance. makeStation
-      // returns early for an id it already knows, so stale entries would
-      // leave those agents invisible for the rest of the session.
+
+
+
       Object.keys(stations).forEach(function (id) { delete stations[id]; });
       GuildWorld.releaseAll();
 
       theme.buildRoom(this);
 
-      // The three fixed roles are present from the start, so the room never
-      // looks empty. Scouts arrive when the planner reports back, because
-      // only then do we know how many there are.
+
+
+
       ["planner", "synthesizer", "verifier"].forEach(function (id) {
         makeStation(scene, id, GuildWorld.homeZone(id));
       });
@@ -322,13 +251,6 @@ const GuildGame = (function () {
     }
   };
 
-  /* ---------------------------- the archive ----------------------------
-
-     The case is the room's one interactive object besides the agents, and
-     the only one whose appearance is a readout: one spine per saved
-     report. setArchiveCount() redraws it, which is why the texture is
-     replaced rather than the image swapped for a different sprite.
-     ---------------------------------------------------------------- */
 
   function archiveSpec() {
     return GuildWorld.FURNITURE.filter(function (f) {
@@ -351,12 +273,12 @@ const GuildGame = (function () {
 
     redrawArchive(s);
 
-    // The scroll sits on the scribe's desk and only appears once there is
-    // something to collect.
+
+
     const desk = GuildWorld.zone("scribe");
     scrollSprite = s.add.image(desk.x + 9, desk.y + 4, PixelArt.KEYS.scroll)
       .setOrigin(0.5, 1)
-      .setDepth(960)            // above the desk, below the nameplates
+      .setDepth(960)
       .setVisible(false);
   }
 
@@ -380,7 +302,7 @@ const GuildGame = (function () {
     tex.refresh();
   }
 
-  /* -------------------------- a workstation -------------------------- */
+
 
   /**
    * One agent: character, nameplate and emote slot, standing at a zone.
@@ -397,7 +319,7 @@ const GuildGame = (function () {
     const emote = s.add.sprite(z.x + theme.emote.dx, z.y + theme.emote.dy,
       PixelArt.KEYS.emotes, "search")
       .setOrigin(0.5, 1)
-      .setDepth(1000)            // emotes always float above furniture
+      .setDepth(1000)
       .setVisible(false);
 
     const station = {
@@ -410,33 +332,33 @@ const GuildGame = (function () {
       state: "idle",
       facing: z.face,
       plateAbove: plateAboveHead(agentId),
-      zone: zoneName,            // where it is, or is walking to
-      route: null,               // remaining waypoints, or null when standing
+      zone: zoneName,
+      route: null,
       routeStep: 0,
       arriveCb: null,
       emoteTween: null,
-      // Off-duty bookkeeping: where this agent is up to in its rota, and
-      // what it is doing now (null whenever it is working or walking).
+
+
       rotaIndex: scoutIndex(agentId),
       activity: null,
       routineTimer: null,
-      // The emote's hover is an OFFSET, not a tween on its y. The emote has
-      // to follow a walking body every frame, and a tween writing y at the
-      // same time left it stranded at a stale baseline the moment the agent
-      // moved. followBody() adds this offset instead.
+
+
+
+
       hover: { v: 0 },
       settleTimer: null,
       fillerTimer: null
     };
     stations[agentId] = station;
 
-    // Fade in: agents should arrive, not pop into existence.
-    //
-    // One tween PER OBJECT, deliberately. This used to be a single tween
+
+
+
     // targeting sprite and nameplate together. A state change kills tweens
     // on the sprite -- and that killed the shared fade too, freezing the
-    // nameplate at alpha 0. A real run triggers it every time: scouts start
-    // searching within milliseconds of being summoned.
+
+
     [v.sprite, v.plate].forEach(function (o) {
       o.setAlpha(0);
       s.tweens.add({ targets: o, alpha: 1, duration: 260, ease: "Linear" });
@@ -445,10 +367,10 @@ const GuildGame = (function () {
     followBody(station);
     playStand(station);
 
-    // ---- clicking an agent opens its detail card (app.js) ----
+
     // The hit area is far larger than the sprite (body and nameplate).
-    // A 16px target is fine for a determined mouse user and hopeless for
-    // everyone else.
+
+
     const h = v.hitArea;
     v.sprite.setInteractive({
       hitArea: new Phaser.Geom.Rectangle(h[0], h[1], h[2], h[3]),
@@ -465,7 +387,7 @@ const GuildGame = (function () {
     return station;
   }
 
-  /* --------------------------- movement --------------------------- */
+
 
   /**
    * Keep the nameplate and emote with the body, and re-sort by feet.
@@ -488,7 +410,7 @@ const GuildGame = (function () {
     st.sprite.setDepth(y);
     // Measured from the sprite, not a fixed 46: the two themes draw
     // characters 32 and 24 pixels tall, and a constant left the generated
-    // theme's nameplate floating well above an agent's head.
+
     const above = y - (st.sprite.height + 14);
     st.plate.setPosition(x, st.plateAbove ? above : y + 2).setDepth(PLATE_DEPTH);
     st.emote.setPosition(x + theme.emote.dx, y + theme.emote.dy + st.hover.v);
@@ -515,11 +437,11 @@ const GuildGame = (function () {
 
     // MOVEMENT OWNS THE SPRITE'S POSITION. The typing bob, the done hop and
     // the failed shake all tween sprite.y or sprite.x on a loop, and a tween
-    // left running during a walk fights the mover for the same property:
-    // the route starts from a half-bobbed y like 149.245, and every frame
+
+
     // the tween drags the sprite back to where it was. The agent then walks
-    // on the spot, forever, with no error to show for it. Kill them first,
-    // and start from the exact spot the agent is standing on.
+
+
     scene.tweens.killTweensOf(st.sprite);
     const from = st.route ? null : GuildWorld.zone(st.zone);
     if (from && Math.abs(st.sprite.x - from.x) <= 6 && Math.abs(st.sprite.y - from.y) <= 6) {
@@ -594,7 +516,7 @@ const GuildGame = (function () {
         budget -= dist;
         st.routeStep++;
         if (st.routeStep >= st.route.length) {
-          // Arrived.
+
           st.route = null;
           st.facing = st.destFace || st.facing;
           const cb = st.arriveCb;
@@ -611,27 +533,10 @@ const GuildGame = (function () {
     }
   }
 
-  /* ===================== the off-duty routine =====================
 
-     WHAT THIS IS, AND WHAT IT IS NOT
-
-     It is NOT wandering. An agent with nothing to do does not drift to a
-     random spot; it works through a FIXED ROTA, the way a townsperson in a
-     role-playing game keeps to a daily round. Each role has its own order,
-     so the hall has a rhythm you can learn: the scribe always makes for the
-     coffee machine first, the warden always sits down first.
-
-     Every activity happens at a NAMED SPOT the agent has to walk to, and
-     every spot is claimed exclusively (claim(..., strict)). Two agents can
-     therefore never end up in one chair: the second finds it taken and goes
-     on to the next thing on its own list instead of waiting.
-
-     A pipeline event cancels whatever is going on instantly -- the routine
-     is what the hall does while it waits, never something work queues behind.
-     ================================================================ */
 
   const ACTIVITIES = {
-    // dwell is how long the agent stays once it has arrived.
+
     coffee: { group: "coffee", anim: "stand", emote: "mug",  dwell: [5000, 8000] },
     browse: { group: "browse", anim: "read",  emote: "book", dwell: [6000, 10000] },
     chat:   { group: "chat",   anim: "stand", emote: "chat", dwell: [7000, 11000] }
@@ -675,14 +580,14 @@ const GuildGame = (function () {
    * frozen because someone else got the chair reads as a bug.
    */
   function startNextActivity(st) {
-    if (!routineEnabled) return;      // a timer queued before it was switched off
+    if (!routineEnabled) return;
     const rota = rotaFor(st.id);
     for (let tries = 0; tries < rota.length; tries++) {
       const name = rota[st.rotaIndex % rota.length];
       st.rotaIndex++;
       if (name === "chat" ? beginChat(st) : beginActivity(st, name)) return;
     }
-    scheduleRoutine(st);          // everything was busy: try again later
+    scheduleRoutine(st);
   }
 
   function beginActivity(st, name) {
@@ -744,14 +649,14 @@ const GuildGame = (function () {
     st.activity = null;
     GuildWorld.release(st.id);
     showEmote(st, null);
-    if (st.state !== "idle") return;      // work arrived while it sat there
+    if (st.state !== "idle") return;
     walkTo(st, GuildWorld.homeZone(st.id), function () {
       playStand(st);
       scheduleRoutine(st);
     });
   }
 
-  /* ------------------------- state changes ------------------------- */
+
 
   /** Pose, emote and flourishes for the state the agent is now in. */
   function applyLook(st) {
@@ -759,8 +664,8 @@ const GuildGame = (function () {
 
     scene.tweens.killTweensOf(st.sprite);
     // A hop or shake killed mid-flight leaves the sprite a few pixels off
-    // its spot, and the next one would then treat that as the baseline and
-    // the agent would drift. Snap to the zone first.
+
+
     const here = st.route ? null : GuildWorld.zone(st.zone);
     if (here) st.sprite.setPosition(here.x, here.y);
     st.sprite.play(animKey(st, look.anim), true);
@@ -787,8 +692,8 @@ const GuildGame = (function () {
         });
       }
     } else if (st.state === "typing" && theme.typingBob && !reducedMotion) {
-      // Busy-bounce: a 1px bob while writing, for themes whose art has no
-      // dedicated typing frames.
+
+
       scene.tweens.add({
         targets: st.sprite, y: st.sprite.y - 1, duration: 110, yoyo: true, repeat: -1
       });
@@ -809,17 +714,17 @@ const GuildGame = (function () {
     }
 
     const st = stations[agentId];
-    if (!st) return;                       // unknown agent: ignore, never throw
+    if (!st) return;
 
     st.state = state;
     cancelRoutine(st);
     if (st.settleTimer) { st.settleTimer.remove(); st.settleTimer = null; }
 
-    // The emote is the fastest signal we have, so it changes NOW -- while
-    // the agent is still walking to wherever this state belongs.
+
+
     showEmote(st, (PRESENTATION[state] || PRESENTATION.idle).emote);
 
-    // Scouts hold a table slot only while they are actually at the table.
+
     if (isScout(agentId) && state !== "searching" && state !== "reading") {
       GuildWorld.release(agentId);
     }
@@ -860,8 +765,8 @@ const GuildGame = (function () {
     st.emote.setFrame(frame).setVisible(true);
     st.hover.v = 0;
     followBody(st);
-    // A small continuous hover: motion is what makes the eye find the agent
-    // that just changed. Skipped for people who asked for less motion.
+
+
     if (!reducedMotion) {
       st.emoteTween = scene.tweens.add({
         targets: st.hover, v: -3, duration: 620,
@@ -870,7 +775,6 @@ const GuildGame = (function () {
     }
   }
 
-  /* --------------------------- public API --------------------------- */
 
   /**
    * Summon `count` scouts (1-5). They appear at the gate and walk to their
@@ -945,14 +849,7 @@ const GuildGame = (function () {
     });
   }
 
-  /* ---- the planner's rounds ----
 
-     The planner's own work is over seconds after a run starts: it writes
-     the plan and then has nothing to do for minutes. Rather than leave it
-     sitting at its desk for the rest of the run, it comes down to the desk
-     row once or twice to see how the scouts are getting on, then goes back
-     to its cabin. Twice is the cap -- a supervisor pacing the floor all
-     afternoon stops reading as supervision and starts reading as a bug. */
   const MAX_ROUNDS = 2;
   let roundsThisRun = 0;
 
@@ -960,12 +857,12 @@ const GuildGame = (function () {
     if (!ready || !scene) return;
     const st = stations.planner;
     if (!st || roundsThisRun >= MAX_ROUNDS) return;
-    // Only when the planner is genuinely free: never interrupt its own work.
+
     if (st.route || st.activity || ["typing", "thinking"].indexOf(st.state) !== -1) return;
 
     roundsThisRun++;
     cancelRoutine(st);
-    // A different end of the row each time, so a second round does not look
+
     // like a replay of the first.
     const spots = GuildWorld.GROUPS.inspect;
     const spot = spots[(roundsThisRun - 1) % spots.length];
@@ -1051,7 +948,7 @@ const GuildGame = (function () {
       parent: "stage",
       width: W,
       height: H,
-      // The whole aesthetic depends on nearest-neighbour magnification.
+
       pixelArt: true,
       backgroundColor: "#131a2b",
       scale: {
@@ -1103,7 +1000,7 @@ const GuildGame = (function () {
           archiveCount += 1;
           redrawArchive(scene);
           if (!reducedMotion) {
-            // one bright pulse: a book just went in
+
             archiveCase.setTint(0xffe9b5);
             scene.time.delayedCall(260, function () { archiveCase.clearTint(); });
           }

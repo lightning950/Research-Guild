@@ -1,32 +1,4 @@
-"""
-Web server for the multi-agent research pipeline.
-
-Phase A: serves one page, takes a topic, runs the real pipeline in a
-background thread, and streams live progress into the browser as plain text.
-
-Architecture, in one paragraph:
-
-    browser  --(socket.io "start_run")-->  Flask-SocketIO
-                                              |
-                                              | starts a background thread
-                                              v
-                                          run_pipeline(topic, on_event=...)
-                                              |
-                                              | calls on_event(...) as things happen
-                                              v
-    browser  <--(socket.io "pipeline_event")-- broadcast to every connected page
-
-Why a background thread at all: run_pipeline takes 30-90 seconds. If we ran it
-inside the HTTP request that started it, the browser would sit on a blank
-loading page and we could not report anything until it finished. The whole
-point of this UI is showing progress *during* the run, so the run has to
-happen outside the request/response cycle.
-
-Why async_mode="threading": most Socket.IO tutorials tell you to install
-eventlet or gevent. Both are awkward on Python 3.13 / Windows, and we do not
-need them -- "threading" mode uses plain Python threads, which is also what
-the pipeline's own ThreadPoolExecutor already uses. Fewer moving parts.
-"""
+"""Flask server for the multi-agent research pipeline."""
 
 import json
 import os
@@ -34,14 +6,9 @@ import threading
 
 from flask import Flask, render_template, send_from_directory, abort, jsonify, request
 from flask_socketio import SocketIO
-
-# Importing the pipeline unchanged. It knows nothing about Flask -- it just
-# accepts an on_event callback -- so eval.py and the command line still work.
 from multi_agent import run_pipeline, PipelineError
 
 app = Flask(__name__)
-# Flask wants a secret key for session signing. Fine to hardcode for a local
-# dev tool; if you ever put this on the internet, move it to .env.
 app.config["SECRET_KEY"] = os.environ["FLASK_SECRET_KEY"]
 
 allowed_origins = os.getenv("CORS_ALLOWED_ORIGINS", "*").split(",")
@@ -57,18 +24,9 @@ TRACES_DIR = os.path.join(BASE_DIR, "traces")
 os.makedirs(REPORTS_DIR, exist_ok=True)
 os.makedirs(TRACES_DIR, exist_ok=True)
 
-# ---------------------------------------------------------------------------
-# Run state
-#
-# We deliberately allow only ONE run at a time. Two reasons: the free API
-# tiers (Firecrawl, Groq) will rate-limit you fast if several runs fire at
-# once, and "one room, one crew of agents" is much easier to reason about than
-# several overlapping runs sharing one set of sprites.
-# ---------------------------------------------------------------------------
-
-run_lock = threading.Lock()      # guards the two variables below
+run_lock = threading.Lock()
 run_in_progress = False
-event_history = []               # every event of the current run, in order
+event_history = []
 
 
 def broadcast(event):
@@ -98,21 +56,13 @@ def pipeline_worker(topic, mode="normal"):
     try:
         run_pipeline(topic, on_event=broadcast, mode=mode)
     except PipelineError as e:
-        # An expected, explainable failure (no plan, no usable sources).
         broadcast({"type": "run_failed", "error": str(e), "expected": True})
     except Exception as e:
-        # Anything else: still report it, so the UI never just silently hangs.
         broadcast({"type": "run_failed", "error": f"{type(e).__name__}: {e}", "expected": False})
     finally:
-        # Always release the "one run at a time" flag, success or failure.
         with run_lock:
             run_in_progress = False
         socketio.emit("run_finished", {})
-
-
-# ---------------------------------------------------------------------------
-# HTTP routes
-# ---------------------------------------------------------------------------
 
 @app.route("/")
 def index():
@@ -131,15 +81,6 @@ def download_report(filename):
     if not safe_name:
         abort(404)
     return send_from_directory(REPORTS_DIR, safe_name, as_attachment=True)
-
-
-# ---------------------------------------------------------------------------
-# The Archive (Phase C)
-#
-# Every run already saves reports/<name>.md and traces/<name>_trace.json.
-# These two routes just expose what is on disk, so the title screen can list
-# past quests and reopen them. No database: the folders ARE the archive.
-# ---------------------------------------------------------------------------
 
 def _safe_report_name(filename):
     """
@@ -165,7 +106,7 @@ def _load_trace(report_name):
         with open(path, encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError):
-        return None          # a corrupt trace should not break the archive
+        return None
 
 
 def _trace_stats(trace):
@@ -175,8 +116,6 @@ def _trace_stats(trace):
     """
     if not trace:
         return {"sub_questions_used": None, "sub_questions_total": None, "sources_total": None}
-    # Deep runs add round-2 follow-up questions to the trace; they are extra
-    # digging, not extra sub-questions, so only round 1 counts toward "4/5".
     research = [t for t in trace if t.get("step") == "research" and t.get("round", 1) == 1]
     synthesis = next((t for t in trace if t.get("step") == "synthesis"), {})
     deep_stats = next((t for t in trace if t.get("step") == "deep_stats"), None)
@@ -250,11 +189,6 @@ def get_report(filename):
     payload["mode"] = _mode_for(trace)
     return jsonify(payload)
 
-
-# ---------------------------------------------------------------------------
-# Socket.IO events (the real-time part)
-# ---------------------------------------------------------------------------
-
 @socketio.on("connect")
 def on_connect():
     """
@@ -265,9 +199,6 @@ def on_connect():
         busy = run_in_progress
         missed = list(event_history)
     if busy and missed:
-        # to=request.sid: send the replay ONLY to the browser that just
-        # connected. Without it every open tab received it, replayed the whole
-        # run from scratch and closed whatever card or report it had open.
         socketio.emit("catch_up", {"events": missed}, to=request.sid)
 
 
@@ -280,8 +211,6 @@ def on_start_run(data):
     global run_in_progress
 
     topic = (data or {}).get("topic", "").strip()
-    # Anything other than an explicit "deep" is a normal run, so an old
-    # browser tab that doesn't send a mode keeps working exactly as before.
     mode = "deep" if (data or {}).get("mode") == "deep" else "normal"
     if not topic:
         socketio.emit("run_rejected", {"reason": "Please enter a topic."}, to=request.sid)
@@ -289,19 +218,11 @@ def on_start_run(data):
 
     with run_lock:
         if run_in_progress:
-            # Only the tab that asked is told no. Broadcasting this re-enabled
-            # the START button in the tab whose run was still going.
             socketio.emit("run_rejected", {"reason": "A run is already in progress."},
                           to=request.sid)
             return
-        # Claim the slot and clear the previous run's history in one go, while
-        # still holding the lock, so two fast clicks cannot both get through.
         run_in_progress = True
         event_history.clear()
-
-    # start_background_task is Socket.IO's own thread helper. Using it instead
-    # of threading.Thread directly means emits from inside the thread work
-    # correctly whatever async_mode is configured.
     socketio.start_background_task(pipeline_worker, topic, mode)
 
 

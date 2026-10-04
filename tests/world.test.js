@@ -1,6 +1,3 @@
-/* Map checks for world.js. Run: node tests/world.test.js
-   Prints one line per check plus a final PASS/FAIL, nothing else. */
-
 const W = require("../static/js/world.js");
 
 let failures = 0;
@@ -21,7 +18,7 @@ const zoneNames = Object.keys(W.ZONES);
   check("every zone tile is walkable", bad.length === 0, bad.join(", "));
 }
 
-/* 2. Every zone is inside the floor and on screen. */
+
 {
   const bad = zoneNames.filter(function (n) {
     const z = W.ZONES[n];
@@ -30,8 +27,7 @@ const zoneNames = Object.keys(W.ZONES);
   check("every zone is on the floor and on screen", bad.length === 0, bad.join(", "));
 }
 
-/* 3. One connected floor: flood fill from the gate must reach every zone.
-      This is the check that catches furniture walling a zone off. */
+
 {
   const gate = W.tileOf(W.ZONES.gate.x, W.ZONES.gate.y);
   const seen = {};
@@ -76,7 +72,7 @@ const zoneNames = Object.keys(W.ZONES);
         }
         prev = p;
       });
-      // The last waypoint must be the destination itself.
+
       const last = pts[pts.length - 1];
       if ((last.x !== b.x || last.y !== Math.min(b.y, W.FEET_MAX)) && !badTile) {
         badTile = zoneNames[i] + " -> " + zoneNames[j] + " did not end on the zone";
@@ -110,7 +106,7 @@ const zoneNames = Object.keys(W.ZONES);
   };
 
   const a = W.ZONES.desk0, b = W.ZONES.desk4;
-  const blocker = W.ZONES.desk2;                 // a scout stands here
+  const blocker = W.ZONES.desk2;
   const key = W.tileKey(blocker.x, blocker.y);
 
   const direct = walked(a, W.path(a.x, a.y, b.x, b.y));
@@ -135,15 +131,14 @@ const zoneNames = Object.keys(W.ZONES);
     squeeze.length > 0 && squeeze[squeeze.length - 1].x === b.x);
 }
 
-/* 5. Slot claiming hands agents different spots, and strict claiming says
-      no rather than doubling two agents up on one. */
+
 {
   const a = W.claim("planner", "browse");
   const b = W.claim("verifier", "browse");
   check("two agents claim two different browse spots", a !== b, a + " / " + b);
   check("claiming twice keeps the same spot", W.claim("planner", "browse") === a);
 
-  // browse has two spots; a third agent must be turned away, not squeezed in
+
   check("a full group refuses a strict claim",
     W.claim("synthesizer", "browse", true) === null);
   check("a full group still shares when not strict",
@@ -155,7 +150,7 @@ const zoneNames = Object.keys(W.ZONES);
   W.releaseAll();
 }
 
-/* 6. Home zones match the agent ids the pipeline emits. */
+
 {
   check("home zones map correctly",
     W.homeZone("planner") === "board" &&
@@ -166,7 +161,7 @@ const zoneNames = Object.keys(W.ZONES);
     W.homeZone("nobody") === null);
 }
 
-/* 7. Furniture blocks are inside the room and below the wall line. */
+
 {
   const bad = W.FURNITURE.filter(function (f) {
     if (!f.block) return false;
