@@ -1,0 +1,15 @@
+# Existing pipeline
+python-dotenv
+firecrawl-py
+google-genai
+groq
+
+# Free web sources (both modes): search engines + direct page download
+ddgs                    # search via brave / duckduckgo / bing / yahoo / yandex, no API key
+trafilatura             # extracts readable article text from downloaded pages
+
+# Web UI (Phase A)
+flask
+flask-socketio
+simple-websocket        # lets Socket.IO use real websockets, not just polling
+gunicorn

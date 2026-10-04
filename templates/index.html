@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1a1118">
+<title>Research Guild</title>
+
+<!-- Favicon as an inline SVG: a pixel-art book, drawn on an 8x8 grid.
+     Inline so there is no extra file to serve (and no more favicon 404). -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8' shape-rendering='crispEdges'%3E%3Crect width='8' height='8' fill='%231a1118'/%3E%3Crect x='1' y='2' width='6' height='4' fill='%23c9963f'/%3E%3Crect x='1' y='2' width='3' height='3' fill='%23f6ecd0'/%3E%3Crect x='4' y='2' width='3' height='3' fill='%23e4d4ab'/%3E%3Crect x='4' y='2' width='0.5' height='4' fill='%235a3620'/%3E%3C/svg%3E">
+
+<!-- Two fonts, two jobs.
+     Press Start 2P = the game chrome (titles, buttons). Gorgeous in small
+     doses, unreadable in paragraphs.
+     VT323 = dialogue and log: still period-correct, readable in bulk.
+     The report body deliberately uses neither -- see .doc in app.css. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+
+<div class="cabinet">
+
+  <!-- ===================== left: the console ===================== -->
+  <div class="console">
+
+    <div class="console__top">
+      <span class="led" id="led" title="Lit while a quest is running"></span>
+      <span class="console__brand">RESEARCH GUILD</span>
+      <!-- doubles as the elapsed-time readout while a run is live -->
+      <span class="console__model" id="console-model">MK-IV</span>
+      <button type="button" class="chip-btn" id="sound-btn" aria-pressed="true"
+              title="Toggle sound effects">SND ON</button>
+      <button type="button" class="chip-btn" id="menu-btn" title="Back to the title menu">MENU</button>
+    </div>
+
+    <!-- The screen bezel. Everything inside is "on the display". -->
+    <div class="screen">
+      <div class="screen__glass">
+
+        <!-- Phaser injects its canvas here. 16:9 to match the 480x270
+             logical canvas, so pixels scale cleanly. -->
+        <div id="stage" class="stage">
+          <div id="stage-fallback" class="stage-fallback">
+            <p>Loading the guild hall...</p>
+          </div>
+
+          <!-- ============ TITLE SCREEN ============
+               Sits OVER the canvas with a translucent backdrop, so the idle
+               guild hall shows through behind the menu -- the room itself is
+               the attract screen. It never blocks the quest input below: typing
+               a topic and pressing START dismisses it. -->
+          <div id="title" class="title" role="dialog" aria-label="Title menu">
+            <div class="title__inner">
+              <h1 class="title__logo">
+                <span class="title__logo-top">RESEARCH</span>
+                <span class="title__logo-bottom">GUILD</span>
+              </h1>
+              <p class="title__tag">A party of AI agents that researches anything</p>
+
+              <!-- Main menu. Arrow keys move the cursor, Enter selects,
+                   mouse and touch work as normal buttons. -->
+              <div id="title-menu" class="menu" role="menu">
+                <button type="button" class="menu__item is-active" role="menuitem" id="title-start" data-action="new">NEW QUEST</button>
+                <button type="button" class="menu__item" role="menuitem" data-action="archive">ARCHIVE <span class="menu__count" id="archive-count"></span></button>
+                <button type="button" class="menu__item" role="menuitem" data-action="how">HOW IT WORKS</button>
+              </div>
+
+              <div class="title__examples" id="title-examples">
+                <span class="title__examples-label">TRY</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- ============ FAILURE BANNER ============ -->
+          <div id="banner" class="banner" role="alertdialog" aria-labelledby="banner-title" hidden>
+            <div class="banner__box">
+              <h2 class="banner__title" id="banner-title">QUEST FAILED</h2>
+              <p class="banner__reason" id="banner-reason"></p>
+              <p class="banner__hint" id="banner-hint"></p>
+              <button type="button" class="btn btn--small btn--go" id="banner-ok">OK</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- RPG dialogue box: one shared box with the speaker's name, instead
+             of unreadable tiny bubbles over each sprite. See game.js. -->
+        <div class="dialogue" id="dialogue" aria-live="polite">
+          <div class="dialogue__name" id="dialogue-name">GUILD</div>
+          <p class="dialogue__text" id="dialogue-text">Welcome, Archivist. Name a subject and the guild will research it.</p>
+          <span class="dialogue__cue" id="dialogue-cue" aria-hidden="true">&#9662;</span>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Physical-feeling controls below the screen. -->
+    <form class="controls questbar" id="topic-form" autocomplete="off">
+      <label class="controls__label" for="topic-input">QUEST</label>
+      <input id="topic-input" type="text" maxlength="200" required
+             placeholder="name a subject to research...">
+      <div class="mode" role="group" aria-label="Research depth">
+        <button type="button" class="mode__btn is-on" id="mode-normal"
+                aria-pressed="true" title="A quick pass: summaries and sources">NORMAL</button>
+        <button type="button" class="mode__btn" id="mode-deep"
+                aria-pressed="false" title="A paper-style report. Takes up to five minutes">DEEP</button>
+      </div>
+      <button id="start-btn" type="submit" class="btn btn--go">
+        <span>START</span>
+      </button>
+      <span class="countdown" id="countdown" hidden aria-live="off"></span>
+    </form>
+
+
+  </div>
+
+  <!-- ===================== right: party + log =====================
+       A column of its own, not an overlay: this room keeps its furniture
+       around the edges, so a panel floating over the hall would sit on top
+       of the archive shelves and the break corner. -->
+  <aside class="side">
+
+    <!-- The finished report lives in the records column, not across the
+         bottom of the hall: down there it was a second full-width row of
+         chrome, and every pixel it took came straight off the room. -->
+    <section class="panel ready" id="report-chip" hidden>
+      <h2 class="panel__title ready__flag">REPORT READY</h2>
+      <p class="ready__topic" id="ready-topic"></p>
+      <div class="ready__actions">
+        <button type="button" class="btn btn--small btn--go" id="ready-view">VIEW</button>
+        <a class="btn btn--small" id="ready-md" href="#" download>.MD</a>
+        <button type="button" class="btn btn--small" id="ready-again"
+                title="Clear the hall's notes and start a fresh quest">NEW QUEST</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel__title">PARTY <span class="panel__hint">tap a member for details</span></h2>
+      <div id="party" class="party">
+        <p class="panel__empty">No party assembled.<br>Begin a quest to summon the guild.</p>
+      </div>
+    </section>
+
+    <section class="panel panel--log">
+      <h2 class="panel__title">
+        QUEST LOG
+        <button type="button" id="log-toggle" class="panel__btn" aria-expanded="true" aria-controls="log">HIDE</button>
+      </h2>
+      <div id="log" class="log"></div>
+    </section>
+
+  </aside>
+
+</div>
+
+<!-- ===================== results overlay ===================== -->
+<div id="results" class="overlay" role="dialog" aria-modal="true" aria-labelledby="result-title" hidden>
+  <div class="overlay__inner">
+
+    <div class="fanfare">
+      <h2 class="fanfare__title" id="result-title">QUEST COMPLETE</h2>
+      <p class="fanfare__topic" id="result-topic"></p>
+      <div class="fanfare__stats" id="result-stats"></div>
+    </div>
+
+    <div class="doc-head">
+      <h3 class="doc-head__title">THE REPORT</h3>
+      <div class="doc-head__actions">
+        <button type="button" id="copy-btn" class="btn btn--small">COPY</button>
+        <a id="download-link" class="btn btn--small btn--go" href="#" download>DOWNLOAD .MD</a>
+        <button type="button" id="close-results" class="btn btn--small">CLOSE</button>
+      </div>
+    </div>
+
+    <!-- The rendered report. .doc opts OUT of the pixel fonts on purpose. -->
+    <article id="report" class="doc"></article>
+
+  </div>
+</div>
+
+<!-- ===================== archive overlay ===================== -->
+<div id="archive" class="overlay" role="dialog" aria-modal="true" aria-labelledby="archive-title" hidden>
+  <div class="overlay__inner overlay__inner--narrow">
+    <div class="sheet-head">
+      <h2 class="sheet-head__title" id="archive-title">THE ARCHIVE</h2>
+      <button type="button" class="btn btn--small" data-close="archive">CLOSE</button>
+    </div>
+    <p class="sheet-sub">Every quest the guild has completed, newest first.</p>
+    <div id="archive-list" class="archive-list"></div>
+  </div>
+</div>
+
+<!-- ===================== how it works ===================== -->
+<!-- A sheet, not a panel inside the game screen: on a phone the screen is
+     ~290px tall, and four role descriptions pushed the BACK button out of
+     sight with no hint that the panel scrolled. -->
+<div id="how" class="overlay" role="dialog" aria-modal="true" aria-labelledby="how-title" hidden>
+  <div class="overlay__inner overlay__inner--narrow">
+    <div class="sheet-head">
+      <h2 class="sheet-head__title" id="how-title">HOW IT WORKS</h2>
+      <button type="button" class="btn btn--small" data-close="how">CLOSE</button>
+    </div>
+    <p class="sheet-sub">Four roles, one pipeline. Work flows down the room in this order.</p>
+    <ol class="how__list" id="how-list"></ol>
+  </div>
+</div>
+
+<!-- ===================== agent detail card ===================== -->
+<div id="agent-card" class="overlay overlay--card" role="dialog" aria-modal="true" aria-labelledby="card-name" hidden>
+  <div class="card">
+    <div class="card__head">
+      <img class="card__portrait" id="card-portrait" alt="">
+      <div class="card__who">
+        <h2 class="card__name" id="card-name"></h2>
+        <p class="card__role" id="card-role"></p>
+      </div>
+      <button type="button" class="btn btn--small card__close" data-close="agent-card" aria-label="Close">X</button>
+    </div>
+    <div class="card__body" id="card-body"></div>
+  </div>
+</div>
+
+<!-- Libraries, all free CDN, all pinned.
+     socket.io  : live events from Flask
+     phaser     : the pixel rendering
+     marked     : markdown -> HTML (reports contain tables)
+     dompurify  : strips any HTML/script the model might emit before we
+                  inject it. Never trust model output as markup.
+     katex      : reports include LaTeX blocks. Optional -- app.js checks. -->
+<script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/dist/socket.io.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.80.1/phaser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/katex.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/katex.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/contrib/auto-render.min.js"></script>
+
+<script src="{{ url_for('static', filename='js/sound.js') }}"></script>
+<script src="{{ url_for('static', filename='js/pixel-art.js') }}"></script>
+<!-- The floorplan: furniture, walkable tiles and pathfinding. Both themes
+     read it, so it must load before either of them. -->
+<script src="{{ url_for('static', filename='js/world.js') }}"></script>
+<!-- Modern Interiors theme. If its PNGs are missing the game falls back to
+     pixel-art.js automatically; see static/assets/modern-interiors/ABOUT.md -->
+<script src="{{ url_for('static', filename='js/interiors-art.js') }}"></script>
+<script src="{{ url_for('static', filename='js/game.js') }}"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

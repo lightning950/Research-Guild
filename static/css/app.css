@@ -1,0 +1,1521 @@
+/* =========================================================================
+   Research Guild -- interface styles
+
+   Design notes (the "why", since this is the part that made the old version
+   look generic):
+
+   1. PALETTE. The old build used the default dark-indigo-and-neon-yellow
+      scheme that every generated dashboard uses. This one is a warm library:
+      walnut wood, brass, and parchment, with a deep desaturated navy for the
+      screen. Nothing is pure black or pure white -- flat #000/#fff is the
+      fastest way to make pixel art look cheap.
+
+   2. NO SOFT SHADOWS, NO GRADIENT BUTTONS. 16-bit UI is made of hard edges.
+      Every shadow here has 0 blur, which reads as a deliberate pixel offset
+      rather than a CSS default.
+
+   3. BORDERS ARE DOUBLE. Real console panels have an outer dark line and an
+      inner light line. That is done with border + inset box-shadow, which
+      fakes a 9-slice frame without slicing an image.
+
+   4. FONT DISCIPLINE. Pixel fonts for chrome, readable fonts for content.
+      The report is a document, not decoration -- see .doc at the bottom.
+   ========================================================================= */
+
+:root {
+  /* wood / cabinet */
+  --wood-dark:   #2e1d15;
+  --wood:        #4a2f22;
+  --wood-mid:    #63402d;
+  --wood-light:  #8a5a3c;
+
+  /* brass trim */
+  --brass:       #c9963f;
+  --brass-light: #e8c479;
+  --brass-dark:  #8a6222;
+
+  /* screen interior */
+  --screen-bg:   #131a2b;
+  --screen-deep: #0b101c;
+
+  /* parchment (panels, dialogue, report) */
+  --parch:       #efe2c2;
+  --parch-mid:   #ded0ac;
+  --parch-dark:  #c0ad86;
+
+  /* ink */
+  --ink:         #221a2c;
+  --ink-soft:    #574a63;
+
+  /* state colours -- muted, not neon */
+  --st-idle:     #8d8397;
+  --st-work:     #3f7fb5;
+  --st-write:    #c08a2e;
+  --st-wait:     #b5643f;
+  --st-good:     #4d8f52;
+  --st-bad:      #a8394f;
+
+  --font-pixel: "Press Start 2P", "Courier New", monospace;
+  --font-term:  "VT323", "Consolas", monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  padding: 22px 16px 40px;
+  color: var(--ink);
+  background-color: #1a1118;
+  /* Layered gradients instead of a flat fill: a faint diagonal weave plus a
+     vignette. Costs nothing and stops the page reading as an empty div. */
+  background-image:
+    repeating-linear-gradient(45deg,
+      rgba(255,255,255,.014) 0 2px, rgba(0,0,0,0) 2px 4px),
+    radial-gradient(ellipse at 50% 0%, #33202c 0%, #1a1118 60%, #120c11 100%);
+  font-family: var(--font-term);
+  font-size: 19px;            /* VT323 runs small; 19px is its comfortable size */
+  line-height: 1.35;
+}
+
+/* ============================== layout ============================== */
+
+.cabinet {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 18px;
+  align-items: start;
+}
+
+/* One breakpoint, honestly placed: below this the 300px sidebar starts
+   squeezing the game canvas, so it goes underneath instead. */
+@media (max-width: 900px) {
+  .cabinet { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ============================ the console ============================ */
+
+.console {
+  background:
+    repeating-linear-gradient(90deg,
+      rgba(0,0,0,.07) 0 3px, rgba(255,255,255,.025) 3px 6px),
+    linear-gradient(180deg, var(--wood-mid), var(--wood) 55%, var(--wood-dark));
+  border: 3px solid var(--wood-dark);
+  border-radius: 10px;
+  padding: 12px;
+  /* hard offset shadow + brass inner hairline = machined plastic */
+  box-shadow:
+    inset 0 0 0 2px rgba(232,196,121,.22),
+    6px 6px 0 rgba(0,0,0,.45);
+}
+
+.console__top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 6px 10px;
+}
+
+.console__brand {
+  flex: 1;
+  font-family: var(--font-pixel);
+  font-size: 13px;
+  letter-spacing: 2px;
+  color: var(--brass-light);
+  text-shadow: 2px 2px 0 rgba(0,0,0,.6);
+}
+
+.console__model {
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  color: var(--wood-light);
+  letter-spacing: 1px;
+}
+
+/* Power LED: red idle, green while a run is live. Tiny detail, but this is
+   the kind of thing that reads as a designed object rather than a web page. */
+.led {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: #7a2b32;
+  box-shadow: inset 0 0 0 2px rgba(0,0,0,.5);
+  flex: none;
+}
+.led.on {
+  background: #6ee07a;
+  box-shadow: inset 0 0 0 2px rgba(0,0,0,.5), 0 0 8px 2px rgba(110,224,122,.5);
+}
+
+/* ------------------------------ screen ------------------------------ */
+
+.screen {
+  background: var(--screen-deep);
+  border: 3px solid #000;
+  border-radius: 6px;
+  padding: 7px;
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.06);
+}
+
+.screen__glass {
+  position: relative;
+  background: var(--screen-bg);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+/* Scanlines, kept very subtle. Strong scanlines look like a filter; faint
+   ones look like a CRT. */
+.screen__glass::after {
+  content: "";
+  position: absolute; inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    180deg, rgba(0,0,0,.16) 0 1px, rgba(0,0,0,0) 1px 3px);
+  z-index: 5;
+}
+
+.stage {
+  position: relative;
+  width: 100%;
+  /* 16:9 matches the 480x270 logical canvas in game.js. Keeping the CSS box
+     at the same ratio as the logical resolution is what lets Phaser scale by
+     a clean whole-ish factor; a mismatched box letterboxes or blurs. */
+  aspect-ratio: 16 / 9;
+  background: var(--screen-bg);
+}
+
+/* Phaser's own canvas. `pixelated` is mandatory -- without it the browser
+   smooths the upscale and the whole 16-bit illusion dies.
+
+   Note what is NOT here: a width/height of 100%. Phaser's FIT mode sizes
+   this canvas itself, preserving 16:9 and centring it. Forcing it to fill
+   the box worked only while the box was exactly 16:9 too -- in a box of any
+   other shape, "fill" means "stretch", and stretched pixel art is the one
+   thing this whole design cannot survive. */
+.stage canvas {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.stage-fallback {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: #6f7fa8;
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  text-align: center;
+  padding: 20px;
+  line-height: 1.8;
+}
+
+/* ----------------------------- dialogue ----------------------------- */
+
+/* The classic RPG text box: parchment, double border, speaker nameplate
+   poking out of the top-left, blinking advance cue bottom-right. */
+.dialogue {
+  position: relative;
+  margin: 7px;
+  padding: 16px 34px 14px 16px;
+  min-height: 86px;
+  background: var(--parch);
+  border: 3px solid var(--ink);
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 2px var(--parch-dark);
+  z-index: 6;                 /* above the scanline layer */
+}
+
+.dialogue__name {
+  position: absolute;
+  top: -13px; left: 12px;
+  padding: 4px 9px;
+  background: var(--ink);
+  color: var(--parch);
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  letter-spacing: 1px;
+  border-radius: 3px;
+}
+
+.dialogue__text {
+  margin: 0;
+  font-size: 21px;
+  line-height: 1.3;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.dialogue__cue {
+  position: absolute;
+  right: 12px; bottom: 8px;
+  color: var(--ink);
+  font-size: 18px;
+  animation: blink 1s steps(1) infinite;
+}
+.dialogue__cue[hidden] { display: none; }
+
+@keyframes blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+
+/* Respect people who get motion sick, or just do not want the flashing. */
+@media (prefers-reduced-motion: reduce) {
+  .dialogue__cue { animation: none; }
+}
+
+/* ----------------------------- controls ----------------------------- */
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 4px 2px;
+  flex-wrap: wrap;
+}
+
+.controls__label {
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--brass-light);
+  flex: none;
+}
+
+#topic-input {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 11px 12px 8px;
+  font-family: var(--font-term);
+  font-size: 20px;
+  color: var(--ink);
+  background: var(--parch);
+  border: 3px solid var(--ink);
+  border-radius: 4px;
+  box-shadow: inset 2px 2px 0 rgba(0,0,0,.14);
+}
+#topic-input::placeholder { color: #9b8d76; }
+#topic-input:focus {
+  outline: none;
+  box-shadow: inset 2px 2px 0 rgba(0,0,0,.14), 0 0 0 3px var(--brass);
+}
+#topic-input:disabled { background: var(--parch-mid); color: var(--ink-soft); }
+
+/* ------------------------------ buttons ------------------------------ */
+
+/* Chunky press-down button. The 6px bottom border is the side of the key;
+   :active removes it and nudges down, so it physically depresses. */
+.btn {
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--ink);
+  background: var(--parch-mid);
+  border: 3px solid var(--ink);
+  border-bottom-width: 6px;
+  border-radius: 4px;
+  padding: 9px 14px 7px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  transition: transform .04s steps(1);
+}
+.btn:active { transform: translateY(3px); border-bottom-width: 3px; }
+
+.btn--go { background: var(--brass); color: #241703; }
+.btn--small { font-size: 9px; padding: 8px 11px 6px; border-bottom-width: 5px; }
+
+.btn:disabled {
+  background: var(--wood-light);
+  color: rgba(0,0,0,.35);
+  cursor: not-allowed;
+  transform: none;
+  border-bottom-width: 6px;
+}
+
+/* =============================== panels =============================== */
+
+.side { display: flex; flex-direction: column; gap: 14px; }
+
+.panel {
+  background: var(--parch);
+  border: 3px solid var(--wood-dark);
+  border-radius: 8px;
+  padding: 10px;
+  box-shadow: inset 0 0 0 2px var(--parch-dark), 5px 5px 0 rgba(0,0,0,.4);
+}
+
+.panel__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 9px;
+  padding-bottom: 7px;
+  border-bottom: 2px solid var(--parch-dark);
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--ink);
+}
+
+.panel__btn {
+  font-family: var(--font-pixel);
+  font-size: 7px;
+  padding: 4px 6px;
+  background: var(--parch-mid);
+  color: var(--ink-soft);
+  border: 2px solid var(--parch-dark);
+  border-radius: 3px;
+  cursor: pointer;
+  letter-spacing: 1px;
+}
+.panel__btn:hover { color: var(--ink); border-color: var(--ink-soft); }
+
+.panel__empty {
+  margin: 4px 0;
+  color: var(--ink-soft);
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+/* ------------------------------- party ------------------------------- */
+
+/* Party rows are modelled on an RPG status list: portrait chip, name, and a
+   meter. The meter is fed by the real done/total numbers the backend now
+   sends, so it is genuine progress, not decoration. */
+.party { display: flex; flex-direction: column; gap: 6px; }
+
+/* Rows are <button>s (keyboard-reachable, announced as clickable), so the
+   first few lines undo the browser's default button styling. */
+.member {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 6px 7px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: var(--parch-mid);
+  border: 2px solid var(--parch-dark);
+  border-left: 5px solid var(--st-idle);
+  border-radius: 4px;
+}
+.member:hover { background: #e6d8b4; border-color: var(--ink-soft); }
+.member:focus-visible { outline: 3px solid var(--brass); outline-offset: 1px; }
+.member__body, .member__name, .member__state, .member__meter { display: block; }
+.member__body { min-width: 0; }
+
+/* Portrait chip: the agent's actual sprite head, cropped out of the
+   generated spritesheet by game.js, so the panel and the game agree. */
+.member__chip {
+  width: 26px; height: 26px;
+  border: 2px solid var(--ink);
+  border-radius: 3px;
+  image-rendering: pixelated;
+  background: var(--st-idle) center / cover no-repeat;
+}
+
+.member__name {
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.member__state {
+  font-size: 16px;
+  line-height: 1.1;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.member__meter {
+  height: 6px;
+  margin-top: 3px;
+  background: rgba(162,145,116,.55);
+  border: 1px solid var(--ink);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.member__fill {
+  height: 100%;
+  width: 0;
+  background: var(--st-work);
+  transition: width .25s steps(6);   /* stepped, not smooth -- it is a game bar */
+}
+
+/* State drives the left stripe, the meter fill, and the label colour at once,
+   so one attribute change restyles the whole row. */
+.member[data-state="thinking"],
+.member[data-state="searching"],
+.member[data-state="reading"]   { border-left-color: var(--st-work); }
+.member[data-state="typing"]    { border-left-color: var(--st-write); }
+.member[data-state="waiting"]   { border-left-color: var(--st-wait); }
+.member[data-state="done"]      { border-left-color: var(--st-good); }
+.member[data-state="failed"]    { border-left-color: var(--st-bad); }
+
+.member[data-state="typing"]  .member__fill { background: var(--st-write); }
+.member[data-state="waiting"] .member__fill { background: var(--st-wait); }
+.member[data-state="done"]    .member__fill { background: var(--st-good); width: 100%; }
+.member[data-state="failed"]  .member__fill { background: var(--st-bad); }
+
+/* -------------------------------- log -------------------------------- */
+
+.log {
+  height: 230px;
+  overflow-y: auto;
+  padding-right: 4px;
+  font-size: 17px;
+  line-height: 1.25;
+}
+.log[hidden] { display: none; }
+
+.log-line { margin-bottom: 2px; overflow-wrap: anywhere; color: var(--ink-soft); }
+.log-line .who { color: var(--ink); }
+.log-line.done   .what { color: var(--st-good); }
+.log-line.failed .what { color: var(--st-bad); }
+.log-line.system .what { color: var(--st-work); font-weight: bold; }
+
+/* Thin parchment-toned scrollbar so it does not break the illusion. */
+.log::-webkit-scrollbar { width: 8px; }
+.log::-webkit-scrollbar-track { background: var(--parch-mid); }
+.log::-webkit-scrollbar-thumb { background: var(--parch-dark); border-radius: 4px; }
+
+/* ============================== overlay ============================== */
+
+.overlay {
+  position: fixed; inset: 0;
+  z-index: 100;
+  background: rgba(10,6,12,.82);
+  overflow-y: auto;
+  padding: 26px 16px 60px;
+}
+.overlay[hidden] { display: none; }
+
+.overlay__inner {
+  max-width: 860px;
+  margin: 0 auto;
+  background: var(--parch);
+  border: 3px solid var(--wood-dark);
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 2px var(--parch-dark), 8px 8px 0 rgba(0,0,0,.5);
+  padding: 20px;
+}
+
+/* ------------------------------ fanfare ------------------------------ */
+
+.fanfare {
+  text-align: center;
+  padding: 10px 8px 18px;
+  border-bottom: 3px double var(--parch-dark);
+}
+
+.fanfare__title {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: 20px;
+  letter-spacing: 3px;
+  color: var(--brass-dark);
+  /* Layered hard shadows = engraved metal lettering. */
+  text-shadow: 2px 2px 0 var(--parch), 4px 4px 0 rgba(0,0,0,.25);
+}
+
+.fanfare__topic {
+  margin: 14px 0 0;
+  font-size: 22px;
+  color: var(--ink);
+}
+
+.fanfare__stats {
+  display: flex; justify-content: center; flex-wrap: wrap;
+  gap: 8px; margin-top: 16px;
+}
+
+/* Stat pills read like an RPG results screen: small pixel caption over a big
+   number, far more scannable than a sentence of counts. */
+.stat {
+  min-width: 96px;
+  padding: 8px 12px;
+  background: var(--parch-mid);
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+  box-shadow: 3px 3px 0 rgba(0,0,0,.22);
+}
+.stat__k {
+  display: block;
+  font-family: var(--font-pixel);
+  font-size: 7px;
+  letter-spacing: 1px;
+  color: var(--ink-soft);
+  margin-bottom: 5px;
+}
+.stat__v { display: block; font-size: 26px; line-height: 1; color: var(--ink); }
+
+/* ----------------------------- doc header ----------------------------- */
+
+.doc-head {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 10px;
+  padding: 16px 0 12px;
+}
+.doc-head__title {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--ink);
+}
+.doc-head__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ======================================================================
+   THE REPORT
+
+   This is the fix for "the report is not readable". Three deliberate
+   choices, all of which override the retro theme -- because a 1,500-word
+   report with tables is a DOCUMENT, and legibility beats aesthetic here:
+
+     1. A real reading font at 16px / 1.7 line-height, not a pixel font.
+     2. A capped measure (~68 characters) so prose lines are not 860px wide.
+     3. Tables actually styled as tables. Reports routinely contain GFM
+        tables; inside a <pre> they were pipe soup.
+
+   The retro framing survives in the panel around it, which is the right
+   place for it.
+   ====================================================================== */
+
+.doc {
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  font-size: 16px;
+  line-height: 1.7;
+  color: #2b2430;
+  background: #f7eed6;
+  border: 2px solid var(--parch-dark);
+  border-radius: 5px;
+  padding: 26px 30px;
+  max-height: 62vh;
+  overflow-y: auto;
+}
+
+/* Cap the measure without capping the panel: tables and code may still use
+   the full width, prose does not. */
+.doc > p, .doc > ul, .doc > ol, .doc > blockquote { max-width: 74ch; }
+
+.doc h1, .doc h2, .doc h3, .doc h4 {
+  font-family: var(--font-pixel);
+  line-height: 1.5;
+  color: #3c2b1d;
+  margin: 1.7em 0 .7em;
+  letter-spacing: 1px;
+}
+.doc > :first-child { margin-top: 0; }
+
+/* Headings are where the pixel font earns its keep -- short, high contrast,
+   and it ties the document back to the game frame. */
+.doc h1 { font-size: 15px; }
+.doc h2 {
+  font-size: 13px;
+  padding-bottom: .5em;
+  border-bottom: 2px solid var(--parch-dark);
+}
+.doc h3 { font-size: 11px; color: #6a4a25; }
+.doc h4 { font-size: 10px; color: var(--ink-soft); }
+
+.doc p { margin: 0 0 1.15em; }
+.doc strong { color: #1d1622; }
+.doc em { color: #4a3c52; }
+
+.doc a { color: #8a5a10; text-decoration: underline; text-underline-offset: 2px; }
+.doc a:hover { background: #e9d9b0; }
+
+.doc ul, .doc ol { margin: 0 0 1.15em; padding-left: 1.4em; }
+.doc li { margin-bottom: .45em; }
+.doc li > ul, .doc li > ol { margin: .45em 0 0; }
+
+.doc blockquote {
+  margin: 0 0 1.15em;
+  padding: .3em 0 .3em 1.1em;
+  border-left: 4px solid var(--brass);
+  color: #4a3c52;
+  font-style: italic;
+}
+
+.doc hr { border: none; border-top: 2px solid var(--parch-dark); margin: 2em 0; }
+
+/* -- tables: the single biggest readability win over the old <pre> -- */
+.doc__table-wrap {
+  overflow-x: auto;            /* wide tables scroll themselves, not the page */
+  margin: 0 0 1.4em;
+  border: 2px solid var(--parch-dark);
+  border-radius: 4px;
+}
+.doc table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.doc th, .doc td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--parch-dark);
+  vertical-align: top;
+}
+.doc th {
+  background: var(--parch-mid);
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  letter-spacing: .5px;
+  line-height: 1.6;
+}
+/* Zebra striping: essential once a table has more than a few rows. */
+.doc tbody tr:nth-child(even) { background: #f1e6ca; }
+.doc tbody tr:last-child td { border-bottom: none; }
+
+.doc code {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: .88em;
+  background: #e8dab6;
+  padding: .12em .35em;
+  border-radius: 3px;
+}
+.doc pre {
+  background: #2b2333;
+  color: #ece2cc;
+  padding: 14px 16px;
+  border-radius: 5px;
+  overflow-x: auto;
+  margin: 0 0 1.4em;
+}
+.doc pre code { background: none; padding: 0; color: inherit; font-size: 13px; }
+
+/* The verification note is the last thing in every report; give it presence
+   rather than letting it trail off as another paragraph. */
+.doc .verify {
+  margin-top: 1.8em;
+  padding: 14px 18px;
+  background: #e7f0e2;
+  border: 2px solid #9dbd9a;
+  border-left: 6px solid var(--st-good);
+  border-radius: 4px;
+  font-size: 15px;
+}
+.doc .verify strong { color: #2f5c33; }
+
+/* KaTeX renders display math in its own block; keep it from overflowing. */
+.doc .katex-display { overflow-x: auto; overflow-y: hidden; padding: 4px 0; }
+
+/* =========================================================================
+   PHASE C -- title screen, archive, agent card, failure banner, sound
+   toggle, and the phone layout.
+   ========================================================================= */
+
+/* Timer readout: nearly invisible in the real-browser screenshots (wood text
+   on wood). Brighter and brass-coloured while a run is live, since that is
+   exactly when someone is looking at it. */
+.console__model.is-live { color: var(--brass-light); font-size: 9px; }
+
+/* Small bezel buttons (SND / MENU). Styled as moulded console keys, quieter
+   than the main START button so they never compete with it. */
+.chip-btn {
+  font-family: var(--font-pixel);
+  font-size: 7px;
+  letter-spacing: 1px;
+  color: var(--parch);
+  background: var(--wood-dark);
+  border: 2px solid #1a100b;
+  border-bottom-width: 4px;
+  border-radius: 3px;
+  padding: 5px 7px 3px;
+  cursor: pointer;
+  flex: none;
+}
+.chip-btn:hover { color: var(--brass-light); }
+.chip-btn:active { transform: translateY(2px); border-bottom-width: 2px; }
+.chip-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; border-bottom-width: 4px; }
+.chip-btn[aria-pressed="false"] { color: var(--wood-light); }
+.menu__item:focus-visible { outline: none; }
+.chip-btn:focus-visible, .btn:focus-visible,
+.example:focus-visible, .archive-row:focus-visible {
+  outline: 3px solid var(--brass-light);
+  outline-offset: 2px;
+}
+
+body.has-overlay { overflow: hidden; }
+
+/* ============================ title screen ============================ */
+
+/* Covers the canvas only, translucent: the idle guild hall shows through, so
+   the room itself is the attract screen. */
+.title {
+  position: absolute;
+  inset: 0;
+  z-index: 4;                    /* above the canvas, below the scanlines */
+  display: flex;
+  padding: 4%;
+  /* Scrolls itself when the content is taller than the screen (the "How it
+     works" list on a phone). */
+  overflow-y: auto;
+  /* Dark enough that the room reads as a dim silhouette. At the first,
+     lighter setting the agents' nameplates showed through and collided
+     with the logo and the example chips. */
+  background:
+    radial-gradient(ellipse at 50% 45%, rgba(15,20,34,.84) 0%, rgba(9,12,22,.95) 75%);
+}
+.title[hidden] { display: none; }
+
+.title__inner {
+  /* margin:auto, not align-items/justify-content:center on the parent. Flex
+     centring pushes overflowing content off BOTH edges where it cannot be
+     scrolled to -- which is exactly how the BACK button vanished on a phone.
+     Auto margins centre when there is room and collapse to 0 when not. */
+  margin: auto;
+  width: 100%;
+  max-width: 460px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+/* The logo: two stacked words, stepped hard shadows in brass and wood for
+   an embossed-cartridge look. clamp() lets it shrink on a phone without a
+   separate breakpoint. */
+.title__logo {
+  margin: 0;
+  font-family: var(--font-pixel);
+  line-height: 1.15;
+  color: var(--brass-light);
+  text-shadow:
+    3px 3px 0 var(--brass-dark),
+    6px 6px 0 rgba(0,0,0,.55);
+}
+.title__logo-top, .title__logo-bottom { display: block; }
+.title__logo-top    { font-size: clamp(16px, 4.2vw, 30px); letter-spacing: 4px; }
+.title__logo-bottom { font-size: clamp(26px, 7vw, 50px); letter-spacing: 8px; color: var(--parch); }
+
+.title__tag {
+  margin: 0;
+  color: #9fb0d3;
+  font-size: clamp(16px, 2.2vw, 20px);
+}
+
+/* ---- menu ---- */
+.menu { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.menu[hidden] { display: none; }
+
+.menu__item {
+  position: relative;
+  font-family: var(--font-pixel);
+  font-size: clamp(10px, 1.5vw, 12px);
+  letter-spacing: 2px;
+  color: #b9c3dc;
+  background: none;
+  border: 0;
+  padding: 8px 22px 8px 30px;
+  min-height: 34px;
+  cursor: pointer;
+  text-align: left;
+}
+/* The blinking triangle cursor is the whole Pokemon menu in one glyph. */
+.menu__item.is-active { color: var(--parch); }
+.menu__item.is-active::before {
+  content: "\25B6";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: .9em;
+  color: var(--brass-light);
+  animation: blink 1s steps(1) infinite;
+}
+.menu__count { color: var(--brass); font-size: .85em; }
+
+/* ---- how it works ---- */
+.how__list {
+  list-style: none;
+  counter-reset: step;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.how__item {
+  position: relative;
+  padding: 10px 12px;
+  background: var(--parch-mid);
+  border: 2px solid var(--parch-dark);
+  border-radius: 4px;
+}
+.how__item { display: grid; grid-template-columns: 40px minmax(0,1fr); gap: 12px; align-items: start; }
+.how__portrait {
+  width: 40px; height: 40px;
+  image-rendering: pixelated;
+  border: 2px solid var(--ink);
+  border-radius: 3px;
+  background: var(--parch-mid);
+}
+.how__item strong {
+  display: block;
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  letter-spacing: 1px;
+  margin-bottom: 3px;
+  color: var(--ink);
+}
+.how__item span { display: block; font-size: 18px; line-height: 1.2; color: var(--ink-soft); }
+
+/* ---- example quests ---- */
+.title__examples {
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+.title__examples-label {
+  flex-basis: 100%;
+  font-family: var(--font-pixel);
+  font-size: 7px;
+  letter-spacing: 1px;
+  color: #6f7fa8;
+}
+.example {
+  font-family: var(--font-term);
+  font-size: 16px;
+  line-height: 1;
+  color: #cdd6ea;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(205,214,234,.28);
+  border-radius: 3px;
+  padding: 5px 8px 4px;
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.example:hover { color: var(--parch); border-color: var(--brass); background: rgba(201,150,63,.14); }
+
+/* ============================ failure banner ============================ */
+
+.banner {
+  position: absolute; inset: 0;
+  z-index: 4;
+  display: flex; align-items: center; justify-content: center;
+  padding: 6%;
+  background: rgba(40,10,18,.55);
+}
+.banner[hidden] { display: none; }
+
+.banner__box {
+  max-width: 380px;
+  text-align: center;
+  background: var(--parch);
+  border: 3px solid var(--ink);
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 2px var(--st-bad), 6px 6px 0 rgba(0,0,0,.45);
+  padding: 16px 18px 14px;
+}
+.banner__title {
+  margin: 0 0 10px;
+  font-family: var(--font-pixel);
+  font-size: 13px;
+  letter-spacing: 2px;
+  color: var(--st-bad);
+}
+.banner__reason {
+  margin: 0 0 8px;
+  font-size: 17px;
+  line-height: 1.2;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.banner__hint { margin: 0 0 12px; font-size: 17px; line-height: 1.2; color: var(--ink-soft); }
+
+/* ============================ panels: extras ============================ */
+
+.panel__hint {
+  font-family: var(--font-term);
+  font-size: 15px;
+  letter-spacing: 0;
+  color: var(--ink-soft);
+  font-weight: normal;
+}
+
+/* ============================ overlay sheets ============================ */
+
+.overlay__inner--narrow { max-width: 640px; }
+
+.sheet-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 3px double var(--parch-dark);
+}
+.sheet-head__title {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: 14px;
+  letter-spacing: 2px;
+  color: var(--brass-dark);
+}
+.sheet-sub { margin: 10px 0 12px; color: var(--ink-soft); font-size: 18px; }
+
+/* ---- archive ---- */
+.archive-list { display: flex; flex-direction: column; gap: 6px; }
+
+.archive-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  padding: 10px 12px 9px;
+  background: var(--parch-mid);
+  border: 2px solid var(--parch-dark);
+  border-left: 5px solid var(--brass);
+  border-radius: 4px;
+  color: var(--ink);
+}
+.archive-row:hover { background: #e6d8b4; border-color: var(--ink-soft); border-left-color: var(--brass-dark); }
+.archive-row__topic {
+  display: block;
+  font-size: 21px;
+  line-height: 1.1;
+  /* first letter capitalised without mangling acronyms like "RAM" */
+}
+.archive-row__topic::first-letter { text-transform: uppercase; }
+.archive-row__meta { display: block; margin-top: 3px; font-size: 16px; color: var(--ink-soft); }
+
+/* ============================ agent card ============================ */
+
+/* The card is a narrow modal centred on desktop and a bottom sheet on a
+   phone (see the mobile block), which is where a thumb can reach it. */
+.overlay--card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+.overlay--card[hidden] { display: none; }
+
+.card {
+  width: 100%;
+  max-width: 460px;
+  margin-top: 4vh;
+  background: var(--parch);
+  border: 3px solid var(--wood-dark);
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 2px var(--parch-dark), 8px 8px 0 rgba(0,0,0,.5);
+  padding: 16px;
+}
+
+.card__head {
+  display: grid;
+  grid-template-columns: 56px minmax(0,1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding-bottom: 12px;
+  border-bottom: 3px double var(--parch-dark);
+}
+.card__portrait {
+  width: 56px; height: 56px;
+  image-rendering: pixelated;
+  border: 3px solid var(--ink);
+  border-radius: 4px;
+  background: var(--parch-mid);
+}
+.card__name {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: 13px;
+  letter-spacing: 2px;
+  color: var(--ink);
+}
+.card__role { margin: 4px 0 0; font-size: 19px; color: var(--ink-soft); }
+.card__close { align-self: start; }
+
+.card__body { max-height: 62vh; overflow-y: auto; padding-right: 2px; }
+.card__blurb { margin: 12px 0 4px; font-size: 18px; line-height: 1.25; color: var(--ink-soft); }
+
+.card__section { margin-top: 14px; }
+.card__label {
+  margin: 0 0 6px;
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  letter-spacing: 2px;
+  color: var(--brass-dark);
+}
+
+.card__status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.card__status-text { font-size: 18px; line-height: 1.15; color: var(--ink); overflow-wrap: anywhere; }
+.card__meter { margin-top: 8px; height: 8px; }
+.card__meter[data-state="done"] .member__fill { background: var(--st-good); }
+.card__meter[data-state="typing"] .member__fill { background: var(--st-write); }
+
+.card__question {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.2;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.card__muted { margin: 0; font-size: 17px; color: var(--ink-soft); }
+.card__plan { margin: 0; padding-left: 1.3em; font-size: 18px; line-height: 1.2; }
+.card__plan li { margin-bottom: 4px; }
+.card__section .btn { margin-top: 8px; }
+
+.card__verdict {
+  margin: 0;
+  padding: 10px 12px;
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  font-size: 15px;
+  line-height: 1.55;
+  color: #2b2430;
+  background: #e7f0e2;
+  border: 2px solid #9dbd9a;
+  border-left: 6px solid var(--st-good);
+  border-radius: 4px;
+}
+
+/* State chip: the same colour language as the party stripes. */
+.state-chip {
+  display: inline-block;
+  font-family: var(--font-pixel);
+  font-size: 7px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--parch);
+  background: var(--st-idle);
+  border-radius: 3px;
+  padding: 4px 6px 3px;
+  flex: none;
+}
+.state-chip[data-state="thinking"],
+.state-chip[data-state="searching"],
+.state-chip[data-state="reading"] { background: var(--st-work); }
+.state-chip[data-state="typing"]  { background: var(--st-write); }
+.state-chip[data-state="waiting"] { background: var(--st-wait); }
+.state-chip[data-state="done"]    { background: var(--st-good); }
+.state-chip[data-state="failed"]  { background: var(--st-bad); }
+
+/* ---- sources ---- */
+.sources { list-style: none; margin: 0; padding: 0; font-size: 17px; line-height: 1.2; }
+.sources__item {
+  display: grid;
+  grid-template-columns: 14px minmax(0,1fr);
+  gap: 6px;
+  padding: 3px 0;
+  border-bottom: 1px dashed var(--parch-dark);
+  overflow-wrap: anywhere;
+}
+.sources__item:last-child { border-bottom: 0; }
+.sources__mark { color: var(--ink-soft); text-align: center; }
+.sources__item.is-used .sources__mark { color: var(--st-good); }
+.sources__item.is-current { color: var(--st-work); }
+.sources__item.is-current .sources__mark { color: var(--st-work); }
+.sources__item.is-skipped { color: #8b7f70; }
+.sources a { color: #7a4f0e; text-underline-offset: 2px; }
+
+/* ---- timeline ---- */
+.timeline { list-style: none; margin: 0; padding: 0; font-size: 16px; line-height: 1.15; }
+.timeline__item {
+  display: grid;
+  grid-template-columns: 44px minmax(0,1fr);
+  gap: 8px;
+  padding: 3px 0 3px 8px;
+  border-left: 3px solid var(--st-idle);
+}
+.timeline__item[data-state="searching"],
+.timeline__item[data-state="reading"],
+.timeline__item[data-state="thinking"] { border-left-color: var(--st-work); }
+.timeline__item[data-state="typing"]   { border-left-color: var(--st-write); }
+.timeline__item[data-state="waiting"]  { border-left-color: var(--st-wait); }
+.timeline__item[data-state="done"]     { border-left-color: var(--st-good); }
+.timeline__item[data-state="failed"]   { border-left-color: var(--st-bad); }
+.timeline__t { color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.timeline__m { color: var(--ink); overflow-wrap: anywhere; }
+
+/* =========================================================================
+   PHONE LAYOUT
+
+   The first real-browser screenshot at 400px showed three problems: START
+   wrapped onto a line of its own, the QUEST label ate a fifth of the row,
+   and an empty quest log filled most of the screen. Below 600px:
+     - controls become one input row with a full-width START under it
+     - every tap target is at least 44px tall
+     - the party becomes a compact two-column grid
+     - overlays go full-bleed, and the report stops being a scroll box
+       inside a scroll box (nested scrolling is miserable on touch)
+     - the agent card becomes a bottom sheet
+   ========================================================================= */
+
+@media (max-width: 600px) {
+  body { padding: 12px 10px 28px; font-size: 18px; }
+
+  .cabinet { gap: 12px; }
+
+  .console { padding: 8px; border-radius: 8px; }
+  .console__top { gap: 7px; padding: 2px 2px 8px; }
+  .console__brand {
+    font-size: 9px;
+    letter-spacing: 0;
+    white-space: nowrap;           /* it wrapped to two lines once the timer appeared */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .console__model { display: none; }
+  .console__model.is-live { display: inline; }
+  .chip-btn { min-height: 32px; padding: 6px 6px 4px; }
+
+  .screen { padding: 4px; }
+  .dialogue { margin: 5px; padding: 14px 12px 12px; min-height: 72px; }
+  .dialogue__text { font-size: 19px; }
+
+  .controls { gap: 8px; padding: 10px 0 0; }
+  .controls__label {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);
+  }                                  /* visually hidden, still read by screen readers */
+  #topic-input { flex: 1 1 100%; min-height: 46px; font-size: 20px; }
+  #start-btn { flex: 1 1 100%; min-height: 48px; font-size: 12px; }
+
+  .panel { padding: 8px; }
+  .panel__hint { display: none; }
+  .party { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+  .party .panel__empty { grid-column: 1 / -1; }
+  .member { grid-template-columns: 22px minmax(0,1fr); gap: 6px; padding: 6px 5px; min-height: 44px; }
+  .member__chip { width: 22px; height: 22px; }
+  .member__name { font-size: 7px; }
+  .member__state { font-size: 15px; }
+  .log { height: 200px; }
+
+  .title { padding: 3%; }
+  .title__inner { gap: 6px; }
+  .title__tag { display: none; }                 /* no room; the menu says enough */
+  .menu__item { min-height: 30px; padding: 5px 18px 5px 26px; font-size: 9px; }
+  .title__examples { display: none; }            /* chips cannot fit a 300px-tall screen */
+
+  .banner__box { padding: 10px 12px; }
+  .banner__reason, .banner__hint { font-size: 15px; }
+
+  .overlay { padding: 0; }
+  .overlay__inner {
+    border-radius: 0;
+    border-left: 0; border-right: 0;
+    padding: 14px 12px 24px;
+    min-height: 100%;
+    box-shadow: inset 0 0 0 2px var(--parch-dark);
+  }
+  .fanfare__title { font-size: 14px; letter-spacing: 2px; }
+  .fanfare__topic { font-size: 20px; }
+  .fanfare__stats { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .stat { min-width: 0; }
+  .doc-head { flex-direction: column; align-items: stretch; }
+  .doc-head__actions { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); }
+  .doc-head__actions .btn { text-align: center; min-height: 44px; padding-left: 4px; padding-right: 4px; }
+
+  .doc {
+    max-height: none;              /* one scroll: the overlay's, not a box inside it */
+    overflow: visible;
+    padding: 16px 14px;
+    font-size: 16px;
+  }
+  .doc h2 { font-size: 11px; }
+  .doc h3 { font-size: 9px; }
+
+  .overlay--card { align-items: flex-end; }
+  .card {
+    max-width: none;
+    margin: 0;
+    border-radius: 12px 12px 0 0;
+    border-bottom: 0;
+    padding: 14px 12px 20px;
+    box-shadow: inset 0 0 0 2px var(--parch-dark);
+  }
+  .card__body { max-height: 58vh; }
+  .card__close { min-width: 44px; min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu__item.is-active::before { animation: none; }
+}
+
+/* =====================================================================
+   PHASE 3 -- THE FULL-SCREEN HUD
+
+   Up to here the page was a console sitting ON a web page: an 1180px
+   cabinet, centred, with the hall in a small box. The hall is now a place
+   agents walk around in, so it takes the whole window height, and the
+   quest bar sits along the bottom of the screen like a game's.
+
+   THE DOCK GETS ITS OWN COLUMN RATHER THAN FLOATING OVER THE HALL.
+   Floating it looked better in a mockup and was wrong in practice: this
+   room keeps its furniture around the EDGES -- the planning corner, the
+   archive shelves, the break corner -- so a panel pinned to the right of
+   the hall sits exactly on top of the coffee machine, the chairs, and the
+   bookcase Phase 4 is about to make clickable. A reserved column costs the
+   hall about a tenth of its width and hides nothing at all.
+
+   These rules come last on purpose: they override the earlier layout by
+   the cascade rather than by editing it, so the console's whole look --
+   wood, brass, scanlines, parchment -- is inherited untouched.
+   ===================================================================== */
+
+body {
+  padding: 0;
+  overflow: hidden;           /* the hall is the page; nothing behind scrolls */
+}
+
+.cabinet {
+  max-width: none;
+  margin: 0;
+  /* dvh, not vh: on phones the address bar must not crop the quest bar. */
+  height: 100dvh;
+  padding: 6px;
+  gap: 8px;
+  /* 248, not 268: the hall is short of HEIGHT at most window sizes and the
+     dock is what the leftover width goes to. Twenty pixels back here is
+     twenty more for the room at the sizes where width is what binds. */
+  /* `auto` for the hall column: the console is exactly as wide as the room
+     (app.js sets that width), and the whole cabinet is centred, so leftover
+     width shows as the page behind it rather than as dark screen beside
+     the room. */
+  grid-template-columns: auto 248px;
+  justify-content: center;
+  /* Columns stretch to the full height -- that is what bounds the dock, so
+     the quest log scrolls inside it instead of growing the page. The
+     console alone shrink-wraps the hall and centres itself in its cell
+     (see .console), so leftover height shows as cabinet, not dead screen. */
+  align-items: stretch;
+}
+
+.console {
+  height: auto;
+  max-height: 100%;
+  min-height: 0;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-radius: 8px;
+  padding: 6px;
+}
+
+/* The screen takes every pixel the top bar and the quest bar do not. */
+.screen {
+  flex: none;
+  min-height: 0;
+  display: flex;
+  padding: 4px;
+}
+
+.screen__glass {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The hall IS 16:9, so its box is too -- no letterboxing, no dark bands.
+   Width comes from the column it sits in; `max-width` is set in app.js from
+   the height actually available, so the box never grows taller than the
+   window. Phaser then fits the canvas to a box of exactly its own shape. */
+.stage {
+  flex: none;
+  /* width is set in app.js, from whichever of height or width binds */
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The dialogue box keeps its place under the hall rather than lying over
+   it -- at the bottom of the glass it covered the scribe and the warden.
+   It holds one line, so it is sized for one line: at its old height it was
+   the single biggest piece of chrome on the screen after the hall itself. */
+.dialogue {
+  flex: none;
+  margin: 4px 0 0;
+  padding: 7px 10px 6px;
+  min-height: 0;
+}
+
+.dialogue__text {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.dialogue__name {
+  top: -9px;
+  padding: 3px 7px 2px;
+}
+
+/* ---------------------------- the dock ---------------------------- */
+
+.side {
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;      /* the log scrolls; the column itself never grows */
+  gap: 10px;
+}
+
+.side .panel--log {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.side .panel--log .log {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+
+/* --------------------------- the quest bar --------------------------- */
+
+.questbar {
+  flex: none;
+  padding: 4px 2px 0;
+  gap: 8px;
+}
+
+/* NORMAL | DEEP. Two buttons rather than a switch: a switch would not say
+   which way is which, and this choice costs real minutes. */
+.mode {
+  display: flex;
+  flex: none;
+  border: 3px solid var(--ink);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.mode__btn {
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  letter-spacing: 1px;
+  padding: 10px 10px 8px;
+  color: var(--parch-dark);
+  background: #2a1b26;
+  border: 0;
+  cursor: pointer;
+}
+
+.mode__btn + .mode__btn { border-left: 3px solid var(--ink); }
+.mode__btn:hover { color: var(--brass-light); }
+
+.mode__btn.is-on {
+  color: #2a1b26;
+  background: var(--brass-light);
+}
+
+.mode__btn:disabled { cursor: not-allowed; opacity: .6; }
+
+/* Deep runs are promised to finish inside five minutes, so the promise is
+   on screen while one runs. */
+.countdown {
+  font-family: var(--font-pixel);
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--brass-light);
+  flex: none;
+  min-width: 56px;
+  text-align: right;
+}
+
+.countdown[hidden] { display: none; }
+.countdown.is-late { color: #e2798b; }
+
+/* --------------------------- REPORT READY ---------------------------
+   A panel at the top of the records column: the finished report sits with
+   the archive and the log, which is where someone looks for it anyway. */
+
+.ready { flex: none; }
+.ready[hidden] { display: none; }
+
+.ready__flag {
+  color: var(--brass-light);
+}
+
+.ready__topic {
+  margin: 2px 0 8px;
+  color: var(--ink);
+  font-size: 17px;
+  line-height: 1.2;
+  /* two lines of topic, then ellipsis -- titles get long */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ready__actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* --------------------------- the overlays ---------------------------
+   The archive and a report are PANELS THAT FIT THE SCREEN, with their own
+   content scrolling inside them. They used to be boxes of unlimited height
+   inside a scrolling backdrop: 36 archive rows made a 3000px sheet, so the
+   heading and its CLOSE button scrolled away off the top and the thing
+   stopped behaving like a dialog at all. */
+
+.overlay {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 16px;
+}
+
+.overlay__inner {
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The parts that must never scroll away: the title, the stats, the buttons. */
+.sheet-head, .fanfare, .doc-head { flex: none; }
+
+/* ...and the parts that scroll. */
+.archive-list,
+.doc,
+.card__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Breathing room so the last row is not flush against the panel edge. */
+.archive-list { padding-right: 4px; }
+
+/* ----------------------------- narrow ------------------------------
+   Below this the dock would leave the hall a letterbox slot, so it goes
+   back underneath and the page scrolls again. */
+@media (max-width: 860px) {
+  body { overflow: auto; }
+
+  .cabinet {
+    height: auto;
+    padding: 10px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .console { height: auto; }
+  .stage { height: auto; aspect-ratio: 16 / 9; }
+  .stage canvas { width: 100%; height: 100%; }
+  .side { height: auto; }
+  .side .panel--log .log { max-height: 260px; }
+}
