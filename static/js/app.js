@@ -156,8 +156,8 @@
     el.modeDeep.setAttribute("aria-pressed", String(deep));
     el.modeNormal.setAttribute("aria-pressed", String(!deep));
     el.input.placeholder = deep
-      ? "name a subject for a full report..."
-      : "name a subject to research...";
+      ? "Go Beyond The Surface..."
+      : "Set Your Sights On Something...";
     try {
       if (window.localStorage) localStorage.setItem(MODE_KEY, mode);
     } catch (err) {  }
