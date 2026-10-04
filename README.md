@@ -9,6 +9,12 @@ The interface is deliberately visual: each agent has a role, a location, a
 status, and a live activity in the room. The report archive is available from
 the same screen after a run completes.
 
+It is designed to make the research process visible without turning it into a
+black box. Instead of waiting for one long model response, you can watch the
+planner divide the work, see the scouts leave for their desks, follow the
+scribe as it assembles the findings, and watch the warden perform the final
+check.
+
 ## Screenshots
 
 ### Guild hall
@@ -35,8 +41,9 @@ PDF.
 
 - Accepts a research topic from the browser.
 - Supports normal and deep research modes.
-- Splits a topic into focused sub-questions.
-- Runs independent research tasks concurrently.
+- Splits a topic into focused sub-questions before research begins.
+- Runs one scout per sub-question, with two to five scouts depending on the
+  breadth of the topic.
 - Searches the web through free sources first.
 - Uses direct page extraction before guarded Firecrawl fallback.
 - Uses LLMs for planning, synthesis, and verification.
@@ -44,6 +51,55 @@ PDF.
 - Saves reports as Markdown and run traces as JSON.
 - Exports the completed report as a print-styled PDF from the browser.
 - Provides an archive for reopening and downloading completed reports.
+
+## How a quest unfolds
+
+### 1. The planner scopes the topic
+
+The planner does not send every topic through the same fixed workflow. It
+chooses between two and five focused sub-questions based on how broad or
+narrow the request is. A compact question may need only two scouts, while a
+topic with several distinct angles can use four or five. This keeps small
+research tasks from becoming unnecessarily expensive while still giving larger
+questions room to be investigated properly.
+
+Each sub-question is written as its own line of inquiry. The questions are
+intended to cover different parts of the topic rather than repeat the same
+search from slightly different wording. For example, a question about heat
+pumps might be divided into cold-weather performance, installation
+requirements, operating costs, and limitations.
+
+### 2. The scouts research in parallel
+
+Once the plan is ready, the browser creates the matching number of scout
+agents. Four scouts instead of five is not a missing agent or a failed run:
+the planner may decide that four lines of inquiry are enough. Each scout
+searches for its own question, collects usable pages, extracts readable text,
+and turns the results into notes with source links.
+
+The sourcing layer tries free search and direct downloads first. Pages that
+cannot be read reliably may go through the guarded Firecrawl fallback, while
+blocked or low-quality pages are filtered out. In deep mode, relevant passages
+are selected from across a page instead of relying only on the opening text.
+
+### 3. The scribe builds one report
+
+The scribe receives the scouts' notes rather than raw search results. It
+combines overlapping findings, keeps the source trail, and turns separate
+answers into a readable report. In normal mode this is a compact synthesis. In
+deep mode, the planner can send follow-up questions when the first pass leaves
+gaps, after which the scribe writes a longer paper-style report.
+
+### 4. The warden checks the result
+
+The warden reviews the finished report against the gathered evidence. It looks
+for unsupported claims, weak citation coverage, contradictions, and missing
+sections. The result is saved as Markdown, accompanied by a JSON trace of the
+run, and can be reopened from the archive or printed as a report-only PDF.
+
+The guild hall reflects these stages as they happen. Positions are meaningful:
+scouts work at their desks, agents move when they hand off findings, and the
+party gathers around the table after a completed quest.
 
 ## Agent workflow
 
@@ -66,9 +122,11 @@ flowchart LR
     Report --> Browser[Live UI and archive]
 ```
 
-Normal mode follows the same core path with a compact research pass. Deep
-mode adds a time-boxed second research and review phase before the final
-report is written.
+Normal mode follows this path with one focused research pass. Deep mode keeps
+the same roles but adds time-boxed planning, evidence extraction, a gap-filling
+round when useful, section drafting, and a final fact-check before the report
+is assembled. The deep run is capped so it can still finish with a report
+instead of waiting indefinitely on a single model or source.
 
 ## Project architecture
 
