@@ -326,8 +326,9 @@ storage, or a database.
 - Monitor model, search, and Firecrawl quotas. Firecrawl is intentionally used
   only as a guarded fallback.
 
-## License
+## Usage
 
-Research Guild is released under the MIT License. You can use it, change it,
-and build on it for personal or commercial projects. Keep your API keys out of
+Research Guild is shared as a project for learning, experimentation, and
+further development. Review the contents and requirements of your intended
+deployment before using it in another application. Keep your API keys out of
 the repository and configure your own environment variables before deploying.
