@@ -9,6 +9,28 @@ The interface is deliberately visual: each agent has a role, a location, a
 status, and a live activity in the room. The report archive is available from
 the same screen after a run completes.
 
+## Screenshots
+
+### Guild hall
+
+The research team works inside the pixel-art guild hall, with each agent's
+position reflecting its current role.
+
+![Research Guild guild hall](docs/guild-hall.png)
+
+### Live research progress
+
+The interface shows agent activity and research progress in real time.
+
+![Research Guild live progress](docs/research-progress.png)
+
+### Completed report
+
+Completed research is presented as a cited report and can be downloaded as a
+PDF.
+
+![Research Guild completed report](docs/completed-report.png)
+
 ## What it does
 
 - Accepts a research topic from the browser.
