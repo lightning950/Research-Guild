@@ -117,9 +117,6 @@ flowchart TB
   rendering, PDF export, and application state.
 - **Phaser** — pixel-art guild hall scene, movement, animations, and depth
   sorting.
-- **Modern Interiors asset pack** — optional pixel-art furniture and character
-  artwork. The included license and attribution information are in
-  `static/assets/modern-interiors/`.
 
 ## Repository layout
 
@@ -137,8 +134,7 @@ flowchart TB
 │   ├── js/app.js             Browser controller
 │   ├── js/game.js            Guild hall behavior
 │   ├── js/world.js           Floorplan, zones, and pathfinding
-│   ├── js/pixel-art.js       Procedural fallback artwork
-│   └── assets/               Optional Modern Interiors artwork
+│   └── js/pixel-art.js       Procedural fallback artwork
 ├── tests/
 │   ├── game.test.js          Headless game behavior tests
 │   ├── world.test.js         Floorplan and pathfinding tests
@@ -250,15 +246,8 @@ storage, or a database.
 - Monitor model, search, and Firecrawl quotas. Firecrawl is intentionally used
   only as a guarded fallback.
 
-## Asset license
-
-The optional Modern Interiors artwork is included under the terms supplied with
-the asset pack. Review
-[`static/assets/modern-interiors/LICENSE.txt`](static/assets/modern-interiors/LICENSE.txt)
-and [`ABOUT.md`](static/assets/modern-interiors/ABOUT.md) before using the
-project commercially or redistributing the assets.
-
 ## License
 
-No project license has been selected yet. Add a `LICENSE` file before
-redistributing the source code.
+Research Guild is released under the MIT License. You can use it, change it,
+and build on it for personal or commercial projects. Keep your API keys out of
+the repository and configure your own environment variables before deploying.
