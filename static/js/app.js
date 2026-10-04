@@ -35,7 +35,7 @@
     bannerOk: $("banner-ok"),
     results: $("results"), resultTitle: $("result-title"), resultTopic: $("result-topic"),
     resultStats: $("result-stats"), report: $("report"), download: $("download-link"),
-    copyBtn: $("copy-btn"), closeBtn: $("close-results"),
+    copyBtn: $("copy-btn"), pdfBtn: $("pdf-btn"), closeBtn: $("close-results"),
     archive: $("archive"), archiveList: $("archive-list"),
     card: $("agent-card"), cardPortrait: $("card-portrait"), cardName: $("card-name"),
     cardRole: $("card-role"), cardBody: $("card-body"),
@@ -1226,6 +1226,10 @@
     if (!navigator.clipboard) { flash("NO CLIPBOARD"); return; }
     navigator.clipboard.writeText(lastReport).then(function () { flash("COPIED"); },
                                                    function () { flash("FAILED"); });
+  });
+
+  el.pdfBtn.addEventListener("click", function () {
+    window.print();
   });
 
   /* ================================================================

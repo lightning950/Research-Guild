@@ -20,6 +20,7 @@ the same screen after a run completes.
 - Uses LLMs for planning, synthesis, and verification.
 - Streams structured progress events to the browser over Socket.IO.
 - Saves reports as Markdown and run traces as JSON.
+- Exports the completed report as a print-styled PDF from the browser.
 - Provides an archive for reopening and downloading completed reports.
 
 ## Agent workflow
@@ -113,7 +114,7 @@ flowchart TB
 - **HTML and CSS** — application shell, report views, archive, and responsive
   layout.
 - **JavaScript** — browser controller, Socket.IO event handling, report
-  rendering, and application state.
+  rendering, PDF export, and application state.
 - **Phaser** — pixel-art guild hall scene, movement, animations, and depth
   sorting.
 - **Modern Interiors asset pack** — optional pixel-art furniture and character

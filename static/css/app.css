@@ -747,6 +747,91 @@ body {
 
 body.has-overlay { overflow: hidden; }
 
+/* ============================ report PDF ============================
+   The browser prints only the completed report. This keeps the same
+   parchment-and-brass treatment without putting the game chrome, archive,
+   or interactive controls into the exported document. */
+@media print {
+  @page {
+    size: A4;
+    margin: 16mm 14mm;
+  }
+
+  html, body {
+    background: #efe2c2 !important;
+    color: #2b2430 !important;
+    height: auto !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body > * { display: none !important; }
+  body > #results {
+    display: block !important;
+    position: static !important;
+    inset: auto !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #efe2c2 !important;
+  }
+
+  #results > .overlay__inner {
+    display: block !important;
+    max-width: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    background: #efe2c2 !important;
+  }
+
+  .fanfare {
+    padding: 0 0 10mm !important;
+    border-bottom: 3px double #b9a77f !important;
+  }
+
+  .fanfare__title {
+    color: #7a4f0e !important;
+    text-shadow: none !important;
+  }
+
+  .fanfare__topic { color: #2b2430 !important; }
+  .fanfare__stats { margin-top: 8mm !important; }
+  .stat { box-shadow: none !important; }
+
+  .doc-head {
+    padding: 8mm 0 5mm !important;
+  }
+
+  .doc-head__actions { display: none !important; }
+
+  .doc {
+    display: block !important;
+    overflow: visible !important;
+    max-width: none !important;
+    color: #2b2430 !important;
+  }
+
+  .doc table,
+  .doc img,
+  .doc pre,
+  .doc blockquote,
+  .doc .verify { break-inside: avoid; }
+
+  .doc__table-wrap {
+    overflow: visible !important;
+    break-inside: avoid;
+  }
+
+  .doc a {
+    color: #5d3c0b !important;
+    overflow-wrap: anywhere;
+  }
+}
+
 /* ============================ title screen ============================ */
 
 /* Covers the canvas only, translucent: the idle guild hall shows through, so
