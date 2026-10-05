@@ -143,6 +143,41 @@ Return ONLY the sub-questions, one per line, no numbering, no extra text.
     sub_questions = [line.strip("- ").strip() for line in lines if line.strip()]
     return sub_questions
 
+
+def validate_topic(topic, on_event=None):
+    """Reject empty or unsearchable topics before using a paid model call."""
+    cleaned = topic.strip()
+    words = re.findall(r"[A-Za-z0-9]+", cleaned)
+    if len(cleaned) < 4 or not words:
+        raise PipelineError("This topic is too short to research. Please enter a clear question.")
+    if len(set(cleaned.lower().replace(" ", ""))) < 3:
+        raise PipelineError("This topic does not look like a research question. Please try again.")
+
+    try:
+        hits, error = web_sources.search(cleaned, max_results=5, retries=0)
+    except web_sources.SourcesUnavailable as e:
+        raise PipelineError(str(e))
+    if not hits:
+        detail = " No useful search results were found."
+        if error:
+            detail += " The search service was unavailable."
+        raise PipelineError(
+            "The guild could not find a reliable starting point for that topic." + detail +
+            " Try a more specific, recognizable question."
+        )
+
+    terms = {word.lower() for word in words if len(word) > 2}
+    searchable_text = " ".join(
+        (hit.get("title") or "") + " " + (hit.get("snippet") or "") + " " + (hit.get("url") or "")
+        for hit in hits
+    ).lower()
+    if terms and not any(term in searchable_text for term in terms):
+        raise PipelineError(
+            "The search results did not match that topic closely enough to begin research. "
+            "Try using clearer words or a more specific question."
+        )
+
+
 def find_urls(query, num_results=5, on_event=None, agent=None):
     """
     Search the web (DuckDuckGo, free) for a sub-question.
@@ -287,7 +322,17 @@ Flag anything in the final report that:
 - Contradicts the original summaries
 - Was added from outside knowledge during synthesis
 
-Keep your response to 3-4 sentences. If the report looks accurate and well-grounded, say so clearly.
+Keep your response to 3-4 sentences. Begin with exactly one of these labels:
+STATUS: SUPPORTED_BY_NOTES
+STATUS: NOT_FULLY_SUPPORTED
+
+Use SUPPORTED_BY_NOTES only when every material claim is explicitly present in
+the original summaries. A citation or a source URL is not proof by itself.
+The summaries may be incomplete, and this check does not independently verify
+the original web pages or PDFs. If there is any uncertainty, use
+NOT_FULLY_SUPPORTED and explain the specific gap.
+
+Keep your response to 3-4 sentences after the status label.
 
 Final Report:
 {final_report}
@@ -303,7 +348,9 @@ Original Research Summaries:
         verification_text = "Verification step failed to run."
         _state(on_event, VERIFIER, "failed", "Verification could not run.")
     else:
-        _state(on_event, VERIFIER, "done", "Every claim checked. Sealed.")
+        if not verification_text.lstrip().startswith("STATUS:"):
+            verification_text = "STATUS: NOT_FULLY_SUPPORTED\n" + verification_text
+        _state(on_event, VERIFIER, "done", "The report was checked against the research notes.")
 
     return verification_text
 
@@ -320,6 +367,12 @@ def run_pipeline(topic, on_event=None, mode="normal"):
     eval.py and existing callers are unaffected. mode="deep" hands off to
     deep_research.py: a paper-style report, time-boxed to 5 minutes.
     """
+    try:
+        validate_topic(topic, on_event=on_event)
+    except PipelineError:
+        _state(on_event, PLANNER, "failed", "The topic did not pass the research preflight.")
+        raise
+
     if mode == "deep":
         from deep_research import run_deep
         return run_deep(topic, on_event, sys.modules[__name__])

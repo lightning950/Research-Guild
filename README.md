@@ -81,6 +81,9 @@ The sourcing layer tries free search and direct downloads first. Pages that
 cannot be read reliably may go through the guarded Firecrawl fallback, while
 blocked or low-quality pages are filtered out. In deep mode, relevant passages
 are selected from across a page instead of relying only on the opening text.
+Before any model planning call, the topic goes through a free search preflight.
+Unsearchable or clearly mismatched topics stop with a message instead of
+spending model credits.
 
 ### 3. The scribe builds one report
 
@@ -96,6 +99,10 @@ The warden reviews the finished report against the gathered evidence. It looks
 for unsupported claims, weak citation coverage, contradictions, and missing
 sections. The result is saved as Markdown, accompanied by a JSON trace of the
 run, and can be reopened from the archive or printed as a report-only PDF.
+This is deliberately a conservative notes-level check. A citation or a
+published PDF link is not treated as proof on its own, and the verifier is
+instructed to mark claims as not fully supported when the research notes do not
+explicitly establish them.
 
 The guild hall reflects these stages as they happen. Positions are meaningful:
 scouts work at their desks, agents move when they hand off findings, and the
@@ -298,6 +305,13 @@ The single worker is intentional. Active-run state and the current event
 history are held in process memory. Running multiple workers without shared
 state would give different clients inconsistent views of a run.
 
+Each browser tab receives its own workspace session and Socket.IO room. Runs
+are isolated from other connected users, so one person starting a quest does
+not move the agents in another person's guild. Completed reports are kept in
+that browser's local archive rather than shared through the server API. This
+also means a report is available on the same browser until its site data is
+cleared, but it is not automatically available on another device.
+
 Set these variables in the hosting provider rather than committing them:
 
 ```text
@@ -309,9 +323,10 @@ FLASK_DEBUG=false
 CORS_ALLOWED_ORIGINS=https://your-deployment-domain
 ```
 
-The local `reports/` and `traces/` folders are suitable for a small demo, but
-cloud filesystems may be ephemeral. A production service that must retain its
-archive should move report and trace storage to a persistent volume, object
+The local `reports/` and `traces/` folders are used for server-side run output
+and may be ephemeral on cloud platforms. The browser archive is intentionally
+local to each workspace. A production service that must retain reports across
+devices should move report and trace storage to a persistent volume, object
 storage, or a database.
 
 ## Security and configuration notes

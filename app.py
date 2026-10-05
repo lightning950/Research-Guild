@@ -2,10 +2,11 @@
 
 import json
 import os
+import re
 import threading
 
 from flask import Flask, render_template, send_from_directory, abort, jsonify, request
-from flask_socketio import SocketIO
+from flask_socketio import SocketIO, join_room
 from multi_agent import run_pipeline, PipelineError
 
 app = Flask(__name__)
@@ -25,13 +26,19 @@ os.makedirs(REPORTS_DIR, exist_ok=True)
 os.makedirs(TRACES_DIR, exist_ok=True)
 
 run_lock = threading.Lock()
-run_in_progress = False
-event_history = []
+workspaces = {}
 
 
-def broadcast(event):
+def _workspace_state(workspace_id):
+    return workspaces.setdefault(workspace_id, {
+        "run_in_progress": False,
+        "event_history": [],
+    })
+
+
+def broadcast(event, workspace_id):
     """
-    Send one pipeline event to every connected browser, and remember it.
+    Send one pipeline event to the workspace that started the run.
 
     This is the function handed to run_pipeline as `on_event`, so it gets
     called from several threads at once (one per parallel researcher). That is
@@ -42,27 +49,35 @@ def broadcast(event):
     can be replayed everything it missed instead of showing an empty log.
     """
     with run_lock:
-        event_history.append(event)
-    socketio.emit("pipeline_event", event)
+        state = _workspace_state(workspace_id)
+        state["event_history"].append(event)
+    socketio.emit("pipeline_event", event, to=workspace_id)
 
 
-def pipeline_worker(topic, mode="normal"):
+def pipeline_worker(topic, mode, workspace_id):
     """
     Runs in a background thread: does the actual research, then reports the
     outcome. Anything that goes wrong becomes a "run_failed" event rather than
     a stack trace the browser never sees.
     """
-    global run_in_progress
     try:
-        run_pipeline(topic, on_event=broadcast, mode=mode)
+        run_pipeline(
+            topic,
+            on_event=lambda event: broadcast(event, workspace_id),
+            mode=mode,
+        )
     except PipelineError as e:
-        broadcast({"type": "run_failed", "error": str(e), "expected": True})
+        broadcast({"type": "run_failed", "error": str(e), "expected": True}, workspace_id)
     except Exception as e:
-        broadcast({"type": "run_failed", "error": f"{type(e).__name__}: {e}", "expected": False})
+        broadcast({
+            "type": "run_failed",
+            "error": f"{type(e).__name__}: {e}",
+            "expected": False,
+        }, workspace_id)
     finally:
         with run_lock:
-            run_in_progress = False
-        socketio.emit("run_finished", {})
+            _workspace_state(workspace_id)["run_in_progress"] = False
+        socketio.emit("run_finished", {}, to=workspace_id)
 
 @app.route("/")
 def index():
@@ -191,13 +206,22 @@ def get_report(filename):
 
 @socketio.on("connect")
 def on_connect():
-    """
-    A browser just connected. If a run is already going, replay everything it
-    has missed so a mid-run page refresh does not show an empty screen.
-    """
+    pass
+
+
+@socketio.on("join_workspace")
+def on_join_workspace(data):
+    workspace_id = (data or {}).get("workspace_id", "")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{16,100}", workspace_id):
+        socketio.emit("workspace_rejected", {"reason": "Invalid workspace."}, to=request.sid)
+        return
+
+    join_room(workspace_id)
     with run_lock:
-        busy = run_in_progress
-        missed = list(event_history)
+        state = _workspace_state(workspace_id)
+        busy = state["run_in_progress"]
+        missed = list(state["event_history"])
+    socketio.emit("workspace_ready", {"workspace_id": workspace_id}, to=request.sid)
     if busy and missed:
         socketio.emit("catch_up", {"events": missed}, to=request.sid)
 
@@ -208,22 +232,25 @@ def on_start_run(data):
     The browser asked to research a topic. Validate, claim the run slot, and
     hand the work to a background thread.
     """
-    global run_in_progress
-
     topic = (data or {}).get("topic", "").strip()
     mode = "deep" if (data or {}).get("mode") == "deep" else "normal"
+    workspace_id = (data or {}).get("workspace_id", "")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{16,100}", workspace_id):
+        socketio.emit("run_rejected", {"reason": "Workspace is not ready."}, to=request.sid)
+        return
     if not topic:
         socketio.emit("run_rejected", {"reason": "Please enter a topic."}, to=request.sid)
         return
 
     with run_lock:
-        if run_in_progress:
+        state = _workspace_state(workspace_id)
+        if state["run_in_progress"]:
             socketio.emit("run_rejected", {"reason": "A run is already in progress."},
                           to=request.sid)
             return
-        run_in_progress = True
-        event_history.clear()
-    socketio.start_background_task(pipeline_worker, topic, mode)
+        state["run_in_progress"] = True
+        state["event_history"].clear()
+    socketio.start_background_task(pipeline_worker, topic, mode, workspace_id)
 
 
 if __name__ == "__main__":

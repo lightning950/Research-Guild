@@ -683,6 +683,9 @@ Gaps and conflicts found:
         material = material_for(sec) if "draws" in sec else text
         prompt = f"""You are a strict fact-checker. Compare the SECTION against the NOTES it was written from.
 Flag any claim that is not supported by the notes, contradicts them, or cites the wrong source number.
+The notes are model-written extracts, not proof that the original web page or PDF
+is accurate. Do not mark a claim supported merely because a citation number is
+present. If the notes do not explicitly support it, mark it unsupported.
 
 Return ONLY JSON: {{"verdict": "supported" | "minor_issues" | "unsupported",
                    "issues": ["short description", "..."]}}  (at most 3 issues)
@@ -715,7 +718,8 @@ NOTES:
                     short = short if len(short) <= 180 else short[:177].rsplit(" ", 1)[0] + "..."
                     issues.append(f"{sec['title']}: {short}")
     if checked:
-        verification_note = (f"Checked {len(checked)} of {len(body_sections)} sections claim-by-claim against "
+        verification_note = ("This is a notes-level check, not independent proof of the original sources. " +
+                             f"Checked {len(checked)} of {len(body_sections)} sections claim-by-claim against "
                              f"the scouts' notes: {counts['supported']} fully supported, "
                              f"{counts['minor_issues']} with minor issues, {counts['unsupported']} unsupported.")
         if issues:

@@ -33,12 +33,28 @@
   const members = new Map();
   const agentLog = new Map();
   let running = false;
+  let workspaceReady = false;
   let replaying = false;         // true while catch_up replays: no sound, no typing
   let clockTimer = null;
   let lastReport = "";
 
 
   const run = { topic: "", startTs: 0, subQuestions: [], complete: null };
+
+  const WORKSPACE_KEY = "guild.workspace.id";
+  const REPORTS_KEY = "guild.workspace.reports";
+  let workspaceId = "";
+  try {
+    workspaceId = sessionStorage.getItem(WORKSPACE_KEY) || "";
+    if (!workspaceId) {
+      workspaceId = (window.crypto && window.crypto.randomUUID)
+        ? window.crypto.randomUUID().replace(/-/g, "")
+        : "workspace" + Date.now() + Math.random().toString(36).slice(2);
+      sessionStorage.setItem(WORKSPACE_KEY, workspaceId);
+    }
+  } catch (err) {
+    workspaceId = "workspace" + Date.now() + Math.random().toString(36).slice(2);
+  }
 
 
 
@@ -203,7 +219,7 @@
   function showChip(data) {
     if (!data) return;
     el.chipTopic.textContent = data.topic || "";
-    el.chipMd.href = "/download/" + encodeURIComponent(data.report_filename || "");
+    setMarkdownDownload(el.chipMd, data);
     el.chipMd.setAttribute("download", data.report_filename || "report.md");
     el.chip.hidden = false;
   }
@@ -647,38 +663,59 @@
 
   /** The count feeds two things: the menu badge and the bookcase's spines. */
   function refreshArchiveCount() {
-    fetch("/api/reports").then(function (r) { return r.json(); }).then(function (list) {
-      el.archiveCount.textContent = list.length ? "(" + list.length + ")" : "";
-
-      GuildGame.setArchiveCount(list.length);
-    }).catch(function () {  });
+    const list = localReports();
+    el.archiveCount.textContent = list.length ? "(" + list.length + ")" : "";
+    GuildGame.setArchiveCount(list.length);
   }
   refreshArchiveCount();
 
   function openArchive() {
     el.archiveList.innerHTML = "";
-    const loading = document.createElement("p");
-    loading.className = "sheet-sub";
-    loading.textContent = "Opening the archive...";
-    el.archiveList.appendChild(loading);
     openOverlay(el.archive);
 
-    fetch("/api/reports").then(function (r) {
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return r.json();
-    }).then(function (list) {
-      el.archiveList.innerHTML = "";
-      if (!list.length) {
-        loading.textContent = "The archive is empty. Complete a quest to fill it.";
-        el.archiveList.appendChild(loading);
-        return;
-      }
-      list.forEach(function (entry) { el.archiveList.appendChild(archiveRow(entry)); });
-      const first = el.archiveList.querySelector("button");
-      if (first) first.focus({ preventScroll: true });
-    }).catch(function () {
-      loading.textContent = "Could not read the archive. Is app.py running?";
-    });
+    const list = localReports();
+    if (!list.length) {
+      const empty = document.createElement("p");
+      empty.className = "sheet-sub";
+      empty.textContent = "The archive is empty. Complete a quest to fill it.";
+      el.archiveList.appendChild(empty);
+      return;
+    }
+    list.forEach(function (entry) { el.archiveList.appendChild(archiveRow(entry)); });
+    const first = el.archiveList.querySelector("button");
+    if (first) first.focus({ preventScroll: true });
+  }
+
+  function localReports() {
+    try {
+      const saved = localStorage.getItem(REPORTS_KEY + "." + workspaceId);
+      const list = saved ? JSON.parse(saved) : [];
+      return Array.isArray(list) ? list : [];
+    } catch (err) {
+      return [];
+    }
+  }
+
+  function saveLocalReport(data) {
+    const entry = {
+      filename: data.report_filename || ("report-" + Date.now() + ".md"),
+      topic: data.topic || "",
+      modified: Date.now() / 1000,
+      words: (data.report || "").trim().split(/\s+/).filter(Boolean).length,
+      has_trace: Array.isArray(data.trace) && data.trace.length > 0,
+      mode: data.mode || mode,
+      data: data
+    };
+    try {
+      const list = localReports().filter(function (item) {
+        return item.filename !== entry.filename;
+      });
+      list.unshift(entry);
+      localStorage.setItem(REPORTS_KEY + "." + workspaceId, JSON.stringify(list.slice(0, 25)));
+    } catch (err) {
+      say("GUILD", "The report is complete, but this browser could not save its archive.", true);
+    }
+    refreshArchiveCount();
   }
 
   function archiveRow(entry) {
@@ -702,13 +739,8 @@
     b.addEventListener("click", function () {
       sfx("confirm");
       meta.textContent = "Opening...";
-      fetch("/api/reports/" + encodeURIComponent(entry.filename))
-        .then(function (r) {
-          if (!r.ok) throw new Error("HTTP " + r.status);
-          return r.json();
-        })
-        .then(function (data) { showResults(data, "archive"); })
-        .catch(function () { meta.textContent = "Could not open this report."; });
+      if (entry.data) showResults(entry.data, "archive");
+      else meta.textContent = "Could not open this report.";
     });
     return b;
   }
@@ -895,6 +927,9 @@
     if (/usable content/.test(e)) {
       return "No readable sources turned up. Try phrasing the topic more broadly.";
     }
+    if (/search|recognizable|research question|starting point/.test(e)) {
+      return "No model call was made. Try a clear, searchable topic so the guild can find reliable sources.";
+    }
     if (/api[_ ]?key|unauthori[sz]ed|401|403/.test(e)) {
       return "An API key looks wrong. Check the keys in your .env file.";
     }
@@ -1021,6 +1056,7 @@
       case "run_complete":
         run.complete = event;
         stopClock();
+        saveLocalReport(event);
         showChip(event);
         sfx("fanfare");
         say("GUILD", "The report is complete and sealed.", true);
@@ -1101,6 +1137,11 @@
 
   function dash(v) { return v === null || v === undefined ? "—" : String(v); }
 
+  function setMarkdownDownload(anchor, data) {
+    const blob = new Blob([data.report || ""], { type: "text/markdown;charset=utf-8" });
+    anchor.href = URL.createObjectURL(blob);
+  }
+
   function showResults(data, mode) {
     lastReport = data.report || "";
     const live = mode === "live";
@@ -1127,7 +1168,7 @@
 
     renderReport(lastReport);
 
-    el.download.href = "/download/" + encodeURIComponent(data.report_filename);
+    setMarkdownDownload(el.download, data);
     el.download.setAttribute("download", data.report_filename);
 
     openOverlay(el.results);
@@ -1283,6 +1324,19 @@
 
   socket.on("pipeline_event", handleEvent);
 
+  socket.on("connect", function () {
+    socket.emit("join_workspace", { workspace_id: workspaceId });
+  });
+
+  socket.on("workspace_ready", function () {
+    workspaceReady = true;
+  });
+
+  socket.on("workspace_rejected", function (data) {
+    workspaceReady = false;
+    say("GUILD", data.reason || "Could not open this workspace.", true);
+  });
+
   socket.on("catch_up", function (data) {
     // A page that connects mid-run replays what it missed, so refreshing
     // does not leave you staring at an empty room. Replayed events are
@@ -1301,6 +1355,7 @@
   socket.on("run_finished", function () { setRunning(false); });
 
   socket.on("disconnect", function () {
+    workspaceReady = false;
     setRunning(false);
     say("GUILD", "Lost contact with the server. Is app.py still running?", true);
   });
@@ -1315,12 +1370,20 @@
     e.preventDefault();
     const topic = el.input.value.trim();
     if (!topic || running) return;
+    if (!workspaceReady) {
+      say("GUILD", "The guild is still connecting. Try again in a moment.", true);
+      return;
+    }
     sfx("confirm");
     hideTitle();
     hideBannerQuietly();
     setRunning(true);
     say("GUILD", "Dispatching the guild...", true);
-    socket.emit("start_run", { topic: topic, mode: mode });
+    socket.emit("start_run", {
+      topic: topic,
+      mode: mode,
+      workspace_id: workspaceId
+    });
   });
 
 
