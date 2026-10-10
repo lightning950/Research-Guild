@@ -7,6 +7,8 @@ groq
 # Free web sources (both modes): search engines + direct page download
 ddgs                    # search via brave / duckduckgo / bing / yahoo / yandex, no API key
 trafilatura             # extracts readable article text from downloaded pages
+agent-reach             # optional public readers such as Jina and yt-dlp
+yt-dlp                  # public YouTube captions for the Agent Reach fallback
 
 # Web UI (Phase A)
 flask

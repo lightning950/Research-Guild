@@ -85,6 +85,23 @@ Before any model planning call, the topic goes through a free search preflight.
 Unsearchable or clearly mismatched topics stop with a message instead of
 spending model credits.
 
+### Optional public-source fallback
+
+The project also supports the public-reader approach used by
+[Agent Reach](https://github.com/Panniantong/agent-reach). It remains an
+optional fallback after the existing `ddgs` and `trafilatura` path:
+
+- Public pages can fall back to Jina Reader when direct extraction fails.
+- Public YouTube pages can use `yt-dlp` captions when available.
+- No browser cookies, private accounts, or authenticated platform commands are
+  used by the deployed application.
+- If Agent Reach or one of its upstream tools is unavailable, the existing
+  source pipeline continues normally.
+
+Set `AGENT_REACH_ENABLED=0` to disable the fallback. The default is enabled.
+On a deployment platform, install the dependencies from `requirements.txt`;
+there is no separate login or cookie setup for this public-only integration.
+
 ### 3. The scribe builds one report
 
 The scribe receives the scouts' notes rather than raw search results. It

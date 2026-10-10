@@ -3,6 +3,12 @@
 import threading
 import time
 import urllib.request
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeout
@@ -23,7 +29,9 @@ except ImportError:
 
 
 BLOCKED_DOMAINS = ["facebook.com", "twitter.com", "x.com", "instagram.com",
-                   "linkedin.com", "tiktok.com", "pinterest.com", "youtube.com"]
+                   "linkedin.com", "tiktok.com", "pinterest.com"]
+AGENT_REACH_ENABLED = os.getenv("AGENT_REACH_ENABLED", "1").lower() not in {"0", "false", "no"}
+AGENT_REACH_TIMEOUT = 20
 
 MIN_BALANCE = 100
 FIRECRAWL_PER_MINUTE = 8
@@ -54,6 +62,64 @@ def _looks_like_pdf(url):
             return "pdf" in (resp.headers.get("Content-Type") or "").lower()
     except Exception:
         return False
+
+
+def _is_youtube(url):
+    return bool(re.search(r"https?://(?:www\.)?(?:youtube\.com|youtu\.be)/", url or "",
+                          re.IGNORECASE))
+
+
+def _agent_reach_text(url):
+    """
+    Use Agent Reach's public-reader approach without browser cookies.
+
+    Agent Reach delegates public video reading to yt-dlp and public web reading
+    to Jina Reader. Both are optional: a missing tool or a failed request must
+    leave the existing extraction and Firecrawl fallbacks unchanged.
+    """
+    if not AGENT_REACH_ENABLED:
+        return None, None
+
+    if _is_youtube(url):
+        yt_dlp = shutil.which("yt-dlp")
+        yt_command = ([yt_dlp] if yt_dlp else [sys.executable, "-m", "yt_dlp"])
+        with tempfile.TemporaryDirectory(prefix="research-guild-") as directory:
+            output = os.path.join(directory, "%(id)s")
+            command = yt_command + [
+                "--skip-download", "--write-auto-subs", "--write-subs",
+                "--sub-langs", "en.*,en", "--sub-format", "vtt",
+                "--no-warnings", "--output", output, url,
+            ]
+            try:
+                subprocess.run(command, capture_output=True, text=True,
+                               timeout=AGENT_REACH_TIMEOUT, check=True)
+            except (OSError, subprocess.SubprocessError):
+                return None, None
+            subtitle_files = [
+                os.path.join(directory, name)
+                for name in os.listdir(directory)
+                if name.endswith(".vtt")
+            ]
+            if not subtitle_files:
+                return None, None
+            raw = open(subtitle_files[0], encoding="utf-8", errors="replace").read()
+            lines = []
+            for line in raw.splitlines():
+                line = line.strip()
+                if not line or "-->" in line or line.isdigit() or line.startswith("WEBVTT"):
+                    continue
+                lines.append(re.sub(r"<[^>]+>", "", line))
+            text = re.sub(r"\s+", " ", " ".join(lines)).strip()
+            return (text if is_real_content(text) else None), "agent-reach-yt-dlp"
+
+    jina_url = "https://r.jina.ai/" + url
+    try:
+        request = urllib.request.Request(jina_url, headers={"User-Agent": "ResearchGuild/1.0"})
+        with urllib.request.urlopen(request, timeout=AGENT_REACH_TIMEOUT) as response:
+            text = response.read().decode("utf-8", "replace")
+        return (text if is_real_content(text) else None), "agent-reach-jina"
+    except (OSError, ValueError):
+        return None, None
 
 
 class FirecrawlGuard:
@@ -191,9 +257,12 @@ def fetch_text(url):
         if not html:
             return None
         text = trafilatura.extract(html, include_comments=False, include_tables=True, config=_TRAF_CONFIG)
-        return text if is_real_content(text) else None
+        if is_real_content(text):
+            return text
     except Exception:
-        return None
+        pass
+    text, _ = _agent_reach_text(url)
+    return text
 
 
 def gather(query, want, guard=None, on_page=None, scholarly=False):
