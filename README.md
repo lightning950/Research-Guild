@@ -1,5 +1,7 @@
 # Research Guild
 
+> **Live Demo:** [https://research-guild.onrender.com/](https://research-guild.onrender.com/)
+
 Research Guild is a browser-based research workspace presented as a small
 pixel-art guild hall. A planning agent breaks a topic into questions, scout
 agents research those questions in parallel, and the synthesizer and verifier
@@ -311,8 +313,10 @@ quota.
 
 ## Deployment
 
-The live application is designed to run as one long-lived Python service. The
-current deployment uses Railway with Gunicorn:
+The live application is deployed on Render and runs as a long-lived Python service:
+- **Live Demo**: [https://research-guild.onrender.com/](https://research-guild.onrender.com/)
+
+Production start command:
 
 ```text
 gunicorn --worker-class gthread --threads 10 --workers 1 --bind 0.0.0.0:$PORT app:app
