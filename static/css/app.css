@@ -1336,21 +1336,41 @@ body {
   height: 100%;
   min-height: 0;
   max-height: 100%;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   gap: 10px;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--wood-light) var(--screen-deep);
+}
+
+.side::-webkit-scrollbar {
+  width: 6px;
+}
+.side::-webkit-scrollbar-track {
+  background: var(--screen-deep);
+  border-radius: 3px;
+}
+.side::-webkit-scrollbar-thumb {
+  background: var(--wood-light);
+  border-radius: 3px;
+}
+.side::-webkit-scrollbar-thumb:hover {
+  background: var(--brass);
 }
 
 .side .panel--log {
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 1 0 auto;
+  min-height: 180px;
   display: flex;
   flex-direction: column;
 }
 
 .side .panel--log .log {
   flex: 1 1 auto;
-  min-height: 0;
-  max-height: none;
+  min-height: 130px;
+  height: 180px;
+  max-height: 320px;
 }
 
 
